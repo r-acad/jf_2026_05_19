@@ -10,7 +10,8 @@ The recommended workflow is intentionally small:
 1. Install Julia dependencies once.
 2. Precompile with a representative SOL 105 deck.
 3. Run SOL 105 cases with Julia threads enabled.
-4. Use batch mode for production work so compilation is paid once.
+4. Use batch mode or the persistent worker for production work so compilation
+   is paid once.
 
 ## Requirements
 
@@ -37,6 +38,7 @@ line-continuation character.
 |   |   `-- POST_GUIDE.html
 |   `-- tools/
 |       |-- precompile_sol105.jl
+|       |-- sol105_worker.jl
 |       `-- testing/
 |           |-- run_bdf.jl
 |           |-- run_bdf_batch.jl
@@ -47,6 +49,8 @@ line-continuation character.
 
 - `JFEM/src`: solver source code.
 - `JFEM/tools/precompile_sol105.jl`: one-command SOL 105 precompile setup.
+- `JFEM/tools/sol105_worker.jl`: persistent SOL 105 worker for repeated runs
+  in one warmed Julia session.
 - `JFEM/tools/testing/run_bdf.jl`: preferred single-case runner.
 - `JFEM/tools/testing/run_bdf_batch.jl`: preferred batch runner.
 - `JFEM/POST/postv11.html`: browser viewer for `.jfem` result files.
@@ -299,6 +303,107 @@ For example, if `cases.txt` contains `C:\models\panel_001.bdf`, the batch
 runner creates a case folder under the output root and writes a report named
 `panel_001.REPORT.md` inside that case folder. The two summary files,
 `batch_summary.csv` and `batch_summary.json`, summarize the whole batch.
+
+## Keep a Persistent SOL 105 Worker Open
+
+Use the persistent worker when you want to run separate cases or separate
+batches without restarting Julia each time. This is useful during repeated
+engineering studies because OpenJFEM stays loaded, compiled methods stay warm,
+and every command is submitted to the same Julia process.
+
+Start the worker once:
+
+Windows PowerShell:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\sol105_worker.jl
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/sol105_worker.jl
+```
+
+No flag string is needed in the command above. The worker uses the default fast
+SOL 105 flags:
+
+```text
+JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1
+```
+
+After the worker starts, it prints a `jfem>` prompt. Type one command per line.
+The vertical bar character `|` separates the input path from the output path.
+The `|` is only a separator; it is not part of either file path.
+
+Windows worker commands:
+
+```text
+run C:\models\panel_001.bdf | D:\jfem_runs\panel_001
+batch C:\models\cases.txt | D:\jfem_runs\batch_sol105 | --stop-on-error
+status
+quit
+```
+
+Linux/macOS worker commands:
+
+```text
+run /home/user/models/panel_001.bdf | /home/user/jfem_runs/panel_001
+batch /home/user/models/cases.txt | /home/user/jfem_runs/batch_sol105 | --stop-on-error
+status
+quit
+```
+
+Read the worker commands as follows:
+
+- `run C:\models\panel_001.bdf | D:\jfem_runs\panel_001`: the path before `|`
+  is the input deck. The path after `|` is the output folder for that one case.
+- `batch C:\models\cases.txt | D:\jfem_runs\batch_sol105 | --stop-on-error`:
+  the first path is the batch manifest. The second path is the batch output
+  root. The final field is optional batch behavior.
+- `status`: prints the worker session id, process id, Julia thread count, active
+  flags, completed case count, and failed case count.
+- `quit`: closes only this worker process.
+
+Worker outputs are the same as the single-case and batch runners. A `run`
+command writes `run_manifest.json` and `<case>.REPORT.md` in the case output
+folder. A `batch` command writes one case folder per input deck plus
+`batch_summary.csv` and `batch_summary.json` in the batch output root.
+
+You can also feed commands from a text file. For example, create
+`worker_commands.txt`:
+
+Windows example:
+
+```text
+run C:\models\panel_001.bdf | D:\jfem_runs\panel_001
+run C:\models\panel_002.bdf | D:\jfem_runs\panel_002
+batch C:\models\cases.txt | D:\jfem_runs\batch_sol105 | --stop-on-error
+quit
+```
+
+Linux/macOS example:
+
+```text
+run /home/user/models/panel_001.bdf | /home/user/jfem_runs/panel_001
+run /home/user/models/panel_002.bdf | /home/user/jfem_runs/panel_002
+batch /home/user/models/cases.txt | /home/user/jfem_runs/batch_sol105 | --stop-on-error
+quit
+```
+
+Then start the worker with the command file as standard input:
+
+Windows PowerShell:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\sol105_worker.jl < worker_commands.txt
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/sol105_worker.jl < worker_commands.txt
+```
 
 ## Post-Processing
 
