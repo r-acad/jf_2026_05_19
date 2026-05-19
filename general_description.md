@@ -159,6 +159,8 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - A JSONL persistent worker for Python-driven optimization loops.
 - A Python manifest CLI for creating production manifests from generated or
   existing decks.
+- A SOL 105 preload path that solves only for the static displacement state
+  needed by geometric stiffness, avoiding unused static result recovery.
 - Optional PackageCompiler sysimage creation from the deployment helper when
   PackageCompiler is available.
 - Optional suppression of `.jfem` binary export for timing-sensitive runs.
