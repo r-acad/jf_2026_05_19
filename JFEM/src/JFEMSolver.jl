@@ -1335,6 +1335,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     sol105_static_cache_hits = 0
     sol105_static_cache_misses = 0
     sol105_eigen_seeded_from_static = 0
+    sol105_static_full_recovery = Solver.solver_env_bool("JFEM_SOL105_STATIC_FULL_RECOVERY", false)
     all_eigenvalues = Float64[]
     all_mode_shapes = Vector{Vector{Float64}}()
     buckling_case_diagnostics = Any[]
@@ -1403,10 +1404,18 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         )
                     end
                 end
-                _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
-                    K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
-                    max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
-                    temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
+                if sol105_static_full_recovery
+                    _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
+                        K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
+                        max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static,
+                        snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
+                        temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
+                else
+                    u_static_analysis, fixed_dofs_static, _, _ = Solver.solve_case_state(
+                        K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
+                        max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, orig_diag=orig_diag_static,
+                        temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
+                end
                 return u_static_analysis, fixed_dofs_static
             end
 
@@ -1558,6 +1567,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "linear_solve_cache_enabled" => static_linear_solve_cache !== nothing,
             "eigen_solve_cache_enabled" => eigen_solve_cache !== nothing,
             "eigen_seeded_from_static_linear_cache" => sol105_eigen_seeded_from_static,
+            "static_full_recovery" => sol105_static_full_recovery,
         ),
         "timings" => Dict{String,Any}(
             "sol105_static_reference_solve" => sol105_static_wall_seconds,

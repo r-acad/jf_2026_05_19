@@ -842,6 +842,40 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
     return correction, diagnostics
 end
 
+function solve_case_state(K, ndof, model, id_map, X, load_id, spc_id, node_R;
+                          max_elem_stiff=0.0,
+                          rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
+                          orig_diag=Float64[],
+                          load_scale::Float64=1.0,
+                          temp_load_id=nothing,
+                          linear_cache=nothing,
+                          log_rbe3::Bool=true)
+    F_applied = _assemble_applied_force(
+        ndof, model, id_map, X, load_id, node_R, rbe3_map;
+        load_scale=load_scale,
+        temp_load_id=temp_load_id,
+        log_rbe3=log_rbe3,
+    )
+
+    had_spc_id = haskey(model, "_spc_id")
+    prev_spc_id = had_spc_id ? model["_spc_id"] : nothing
+    model["_spc_id"] = spc_id
+    local u_global, fixed_dofs, solver_diagnostics
+    try
+        u_global, fixed_dofs, _, solver_diagnostics = apply_bc_and_solve(
+            K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
+            linear_cache=linear_cache)
+    finally
+        if had_spc_id
+            model["_spc_id"] = prev_spc_id
+        else
+            delete!(model, "_spc_id")
+        end
+    end
+
+    return u_global, fixed_dofs, solver_diagnostics, F_applied
+end
+
 function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     max_elem_stiff=0.0,
                     rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
@@ -850,18 +884,16 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     load_scale::Float64=1.0,
                     temp_load_id=nothing,
                     linear_cache=nothing)
-    F_applied = _assemble_applied_force(
-        ndof, model, id_map, X, load_id, node_R, rbe3_map;
+    u_global, fixed_dofs, solver_diagnostics, F_applied = solve_case_state(
+        K, ndof, model, id_map, X, load_id, spc_id, node_R;
+        max_elem_stiff=max_elem_stiff,
+        rbe3_map=rbe3_map,
+        orig_diag=orig_diag,
         load_scale=load_scale,
         temp_load_id=temp_load_id,
+        linear_cache=linear_cache,
         log_rbe3=true,
     )
-
-    model["_spc_id"] = spc_id
-    u_global, fixed_dofs, _, solver_diagnostics = apply_bc_and_solve(
-        K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
-        linear_cache=linear_cache)
-    delete!(model, "_spc_id")
 
     R = K * u_global - F_applied
     u_out, stresses, results_json = _build_results_from_state(
