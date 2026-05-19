@@ -1,0 +1,64 @@
+# Local/editor state
+.claude/
+.vscode/
+.idea/
+memory/
+REPO_*/
+
+# Python environments and caches
+.venv*/
+__pycache__/
+*.py[cod]
+
+# Julia generated state
+**/.julia/
+**/deps/deps.jl
+**/test/Manifest.toml
+
+# Solver/generated outputs
+output/
+JFEM/output/
+MYSTRANSolver-main/output/
+JFEM/tmp_*
+
+# Nastran/JFEM heavy run artifacts
+*.f04
+*.f06
+*.log
+*.op2
+*.xdb
+*.pch
+*.h5
+*.hdf5
+*.vtk
+*.vtu
+*.vtp
+*.jfem
+*.comparison_summary.json
+*.plt
+*.jls
+*_kg_diag_*.csv
+
+# LaTeX build products
+*.aux
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.nav
+*.out
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
+
+# External validation/reference payloads kept local
+reference_data/
+validation_data/
+papers/
+MYSTRANSolver-main/
+
+# Temporary/batch files
+*.tmp
+*.bak
+*.orig

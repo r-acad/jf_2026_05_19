@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUDWIG Post-Processor Guide</title>
+    <style>
+        :root {
+            --bg: #1a1a2e; --surface: #16213e; --card: #1c2a4a;
+            --accent: #00d4ff; --accent2: #ff8a65; --modelA: #4fc3f7; --modelB: #ff8a65;
+            --text: #e0e0e0; --dim: #8899aa; --border: #2a3a5a;
+            --code-bg: #0d1b2a; --success: #66bb6a; --warn: #ffa726;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+
+        .hero {
+            background: linear-gradient(135deg, #0d1b2a 0%, #1a1a2e 50%, #16213e 100%);
+            padding: 60px 40px 40px; text-align: center; border-bottom: 2px solid var(--accent);
+        }
+        .hero h1 { font-size: 2.4em; color: #fff; margin-bottom: 8px; letter-spacing: 1px; }
+        .hero h1 span { color: var(--accent); }
+        .hero .subtitle { font-size: 1.1em; color: var(--dim); max-width: 650px; margin: 0 auto; }
+
+        .container { max-width: 960px; margin: 0 auto; padding: 30px 20px; }
+
+        .nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 30px 0; }
+        .nav a {
+            padding: 8px 18px; border-radius: 20px; background: var(--card); color: var(--accent);
+            text-decoration: none; font-size: 0.9em; border: 1px solid var(--border); transition: all 0.2s;
+        }
+        .nav a:hover { background: var(--accent); color: #000; }
+
+        h2 {
+            font-size: 1.6em; color: var(--accent); margin: 40px 0 15px; padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        h3 { font-size: 1.2em; color: var(--accent2); margin: 25px 0 10px; }
+        h4 { font-size: 1em; color: var(--success); margin: 15px 0 8px; }
+        p { margin-bottom: 12px; }
+        ul, ol { margin: 8px 0 16px 24px; }
+        li { margin-bottom: 6px; }
+
+        code { font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; color: var(--accent); background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+        pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin: 10px 0 18px; font-size: 0.92em; overflow-x: auto; }
+        pre code { background: none; padding: 0; }
+
+        table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; }
+        th { background: var(--card); color: var(--accent); text-align: left; padding: 10px 14px; font-size: 0.9em; border: 1px solid var(--border); }
+        td { padding: 8px 14px; border: 1px solid var(--border); font-size: 0.9em; }
+        tr:nth-child(even) td { background: rgba(0,0,0,0.15); }
+
+        .card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 20px; margin: 15px 0;
+        }
+
+        .tip {
+            background: rgba(0, 212, 255, 0.08); border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 0.92em;
+        }
+        .tip::before { content: "\1F4A1 "; }
+
+        .warn {
+            background: rgba(255, 167, 38, 0.08); border: 1px solid rgba(255, 167, 38, 0.3);
+            border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 0.92em;
+        }
+        .warn::before { content: "\26A0\FE0F "; }
+
+        .tab-demo {
+            display: flex; gap: 6px; margin: 15px 0;
+        }
+        .tab-demo .td-tab {
+            padding: 8px 16px; border-radius: 5px; font-weight: bold; font-size: 0.95em;
+            border: 1px solid var(--border);
+        }
+        .td-active { background: #00607a; color: #fff; border-color: #00a0cc !important; }
+        .td-inactive { background: #333; color: #999; }
+
+        .model-tag {
+            display: inline-block; padding: 2px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold;
+        }
+        .model-tag-a { background: rgba(79, 195, 247, 0.2); color: var(--modelA); border: 1px solid var(--modelA); }
+        .model-tag-b { background: rgba(255, 138, 101, 0.2); color: var(--modelB); border: 1px solid var(--modelB); }
+
+        .key-icon {
+            display: inline-block; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px;
+            background: var(--card); font-family: monospace; font-size: 0.9em; color: var(--text);
+            min-width: 28px; text-align: center;
+        }
+
+        .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+
+        .workflow {
+            background: var(--surface); border-left: 3px solid var(--accent); padding: 15px 20px;
+            margin: 15px 0; border-radius: 0 6px 6px 0;
+        }
+        .step { margin: 8px 0; }
+        .step-num {
+            display: inline-block; width: 24px; height: 24px; border-radius: 50%;
+            background: var(--accent); color: #000; text-align: center; line-height: 24px;
+            font-size: 0.8em; font-weight: bold; margin-right: 8px;
+        }
+
+        .layout-diagram {
+            font-family: monospace; font-size: 0.85em; line-height: 1.5;
+            background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+            padding: 15px; margin: 12px 0; white-space: pre;
+        }
+
+        .footer {
+            margin-top: 50px; padding-top: 20px; border-top: 1px solid var(--border);
+            text-align: center; color: var(--dim); font-size: 0.85em;
+        }
+        .footer a { color: var(--accent); }
+    </style>
+</head>
+<body>
+
+<div class="hero">
+    <h1>LUDWIG <span>Post-Processor</span></h1>
+    <p class="subtitle">Interactive HTML5/Babylon.js 3D viewer for OpenJFEM structural results with dual-model comparison</p>
+</div>
+
+<div class="container">
+
+<div class="nav">
+    <a href="#quickstart">Quick Start</a>
+    <a href="#interface">Interface</a>
+    <a href="#struct-tab">Struct Tab</a>
+    <a href="#vis-tab">Vis Tab</a>
+    <a href="#aero-tab">Aero Tab</a>
+    <a href="#navigation">Navigation</a>
+    <a href="#comparison">Model Comparison</a>
+    <a href="#colorbar">Color Scale</a>
+    <a href="#elements">Element Display</a>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="quickstart">Quick Start</h2>
+
+<div class="workflow">
+    <div class="step"><span class="step-num">1</span> Open <code>postv11.html</code> in any modern browser (Chrome, Edge, Firefox)</div>
+    <div class="step"><span class="step-num">2</span> Click the <strong>Struct</strong> tab</div>
+    <div class="step"><span class="step-num">3</span> Load a <code>.jfem</code> file using the <span class="model-tag model-tag-a">Model A</span> file input</div>
+    <div class="step"><span class="step-num">4</span> The model appears in the 3D viewport with color-coded results</div>
+    <div class="step"><span class="step-num">5</span> Use mouse to orbit, zoom, and pan (see <a href="#navigation" style="color:var(--accent)">Navigation</a>)</div>
+</div>
+
+<div class="tip">
+No server or installation required. Just open the HTML file directly in your browser. The only dependency (Babylon.js) is loaded from a CDN.
+</div>
+
+<div class="warn">
+The <code>.jfem</code> file must be generated by OpenJFEM. Run the solver first:
+<code>julia -t auto --project=. src/main.jl models/fwing/fwing.bdf</code>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="interface">Interface Layout</h2>
+
+<div class="layout-diagram">
+<span style="color:var(--accent)">+--[ Control Panel ]--+---------------------------+</span>
+<span style="color:var(--dim)">|                     |                           |</span>
+<span style="color:var(--dim)">|  [Aero][Struct][Vis] |                           |</span>
+<span style="color:var(--dim)">|                     |                           |</span>
+<span style="color:var(--dim)">|  File inputs        |     3D Viewport           |</span>
+<span style="color:var(--dim)">|  Subcases           |     (Babylon.js)          |</span>
+<span style="color:var(--dim)">|  Result fields      |                           |</span>
+<span style="color:var(--dim)">|  Color scale        |                           |</span>
+<span style="color:var(--dim)">|  Deformation        |                           |</span>
+<span style="color:var(--dim)">|  Display options     |                           |</span>
+<span style="color:var(--dim)">|                     |                           |</span>
+<span style="color:var(--dim)">|  [Center All/Aero/S] |                           |</span>
+<span style="color:var(--dim)">|  [Stats bar]        |     [Color Bar]           |</span>
+<span style="color:var(--accent)">+---------------------+---------------------------+</span>
+</div>
+
+<p>The interface has three main areas:</p>
+<ul>
+    <li><strong>Control Panel</strong> (left) &mdash; tabbed panel with all settings and file inputs</li>
+    <li><strong>3D Viewport</strong> (right) &mdash; interactive Babylon.js renderer</li>
+    <li><strong>Color Bar</strong> (bottom center) &mdash; shows current result field range and mapping</li>
+</ul>
+
+<h3>Tabs</h3>
+<div class="tab-demo">
+    <div class="td-tab td-inactive">Aero</div>
+    <div class="td-tab td-active">Struct</div>
+    <div class="td-tab td-inactive">Vis</div>
+</div>
+
+<table>
+    <tr><th>Tab</th><th>Purpose</th></tr>
+    <tr><td><strong>Aero</strong></td><td>Aerodynamic surface meshes, pressure fields, force vectors (CFD post-processing)</td></tr>
+    <tr><td><strong>Struct</strong></td><td>Structural FEM results &mdash; load JFEM files, select subcases, configure result fields and display</td></tr>
+    <tr><td><strong>Vis</strong></td><td>Visualization controls for dual-model comparison &mdash; vertical offset, transparency, labels</td></tr>
+</table>
+
+<p>The collapse button (<code>&laquo;</code>) at the top-left corner hides the control panel to maximize viewport area.</p>
+
+<!-- ================================================================ -->
+<h2 id="struct-tab">Struct Tab</h2>
+
+<p>The primary tab for structural analysis visualization.</p>
+
+<h3>Loading Files</h3>
+
+<p>Two file inputs are provided for dual-model comparison:</p>
+<ul>
+    <li><span class="model-tag model-tag-a">Model A</span> &mdash; Primary model (cyan color label)</li>
+    <li><span class="model-tag model-tag-b">Model B</span> &mdash; Secondary model for comparison (orange color label)</li>
+</ul>
+
+<p>Both accept <code>.jfem</code> binary files. You can load one or both models. When only one model is loaded, the viewer works identically to a single-model viewer.</p>
+
+<h3>Model Units</h3>
+<p>Select the coordinate system units of the BDF model:</p>
+<ul>
+    <li><strong>mm</strong> (default) &mdash; coordinates in millimeters, scaled to meters for display</li>
+    <li><strong>m</strong> &mdash; coordinates already in meters</li>
+</ul>
+
+<h3>Subcases</h3>
+<p>Each model has its own subcase selector (labeled <span style="color:var(--modelA)">A</span> and <span style="color:var(--modelB)">B</span>). Select which load case to visualize for each model independently.</p>
+
+<h3>Result Field</h3>
+<p>Collapsible section to choose which result quantity is color-mapped on the elements.</p>
+
+<h4>Shell Results</h4>
+<table>
+    <tr><th>Field</th><th>Description</th></tr>
+    <tr><td>Von Mises Stress</td><td>Combined stress measure (default)</td></tr>
+    <tr><td>Fx, Fy, Fxy</td><td>Membrane forces per unit length</td></tr>
+    <tr><td>Mx, My, Mxy</td><td>Bending moments per unit length</td></tr>
+    <tr><td>Thickness</td><td>Element thickness (geometry check)</td></tr>
+</table>
+
+<h4>Bar Results</h4>
+<table>
+    <tr><th>Field</th><th>Description</th></tr>
+    <tr><td>Axial Force</td><td>Axial load along the bar (default)</td></tr>
+    <tr><td>Shear 1, Shear 2</td><td>Shear forces in local planes</td></tr>
+    <tr><td>Torque</td><td>Torsional moment</td></tr>
+    <tr><td>Moment A1, Moment A2</td><td>Bending moments at end A</td></tr>
+    <tr><td>Von Mises</td><td>Combined bar stress</td></tr>
+    <tr><td>Section Area</td><td>Cross-section area (geometry check)</td></tr>
+</table>
+
+<h3>Color Scale</h3>
+<p>Controls the mapping from result values to colors.</p>
+<ul>
+    <li><strong>Shell Range</strong> &mdash; Min/Max values for shell elements</li>
+    <li><strong>Bar Range</strong> &mdash; Min/Max values for bar elements</li>
+    <li><strong>Auto Scale</strong> &mdash; automatically fits range to data (recommended)</li>
+    <li><strong>Symmetric (&plusmn;max)</strong> &mdash; centers the scale around zero, useful for signed quantities like bending moments</li>
+</ul>
+
+<h3>Deformation</h3>
+<p>Controls how displacements are amplified for visualization.</p>
+<ul>
+    <li><strong>Scale slider</strong> &mdash; drag to adjust deformation amplification</li>
+    <li><strong>Value</strong> &mdash; enter an exact scale factor</li>
+    <li><strong>Auto Scale</strong> &mdash; sets scale so max displacement is ~10% of model size</li>
+</ul>
+
+<div class="tip">
+Set deformation scale to 0 to see the undeformed shape. Turn on "Undeformed Ghost" to overlay the original shape as a transparent wireframe.
+</div>
+
+<h3>Display Options</h3>
+<table>
+    <tr><th>Option</th><th>Description</th></tr>
+    <tr><td>Show Shells</td><td>Toggle filled shell elements (CQUAD4, CTRIA3)</td></tr>
+    <tr><td>Show Bars/Rods</td><td>Toggle bar/rod line elements (CBAR, CROD)</td></tr>
+    <tr><td>Wireframe Overlay</td><td>Show element edges on top of filled shells</td></tr>
+    <tr><td>Undeformed Ghost</td><td>Semi-transparent wireframe of the undeformed shape</td></tr>
+    <tr><td>Double-sided</td><td>Render both sides of shell elements (disable for face orientation check)</td></tr>
+    <tr><td>Show Nodes</td><td>Display node positions as colored point cloud</td></tr>
+    <tr><td>Show SPCs</td><td>Show single-point constraint markers (yellow diamonds)</td></tr>
+    <tr><td>Show Springs</td><td>Show CELAS spring elements (green lines)</td></tr>
+    <tr><td>Show RBE2</td><td>Show rigid body constraint connections (magenta)</td></tr>
+    <tr><td>Show RBE3</td><td>Show interpolation element connections (gold)</td></tr>
+    <tr><td>Show Forces</td><td>Show applied force arrows (red-to-orange)</td></tr>
+    <tr><td>Show Moments</td><td>Show applied moment arrows (blue, double-headed)</td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="vis-tab">Vis Tab</h2>
+
+<p>The Visualization tab provides controls for dual-model comparison and global display settings.</p>
+
+<h3>Vertical Offset</h3>
+<p>When comparing two models, the vertical offset slider separates them along the Z-axis for side-by-side viewing. The offset is proportional to the model size.</p>
+<ul>
+    <li><strong>0</strong> &mdash; models overlaid (same position)</li>
+    <li><strong>0.5</strong> &mdash; models separated by roughly one model height</li>
+    <li><strong>1.0</strong> &mdash; maximum separation (2x model diagonal)</li>
+</ul>
+
+<h3>Per-Model Controls</h3>
+
+<div class="card">
+    <p><span class="model-tag model-tag-a">Model A</span></p>
+    <ul>
+        <li><strong>Visible</strong> &mdash; toggle Model A visibility</li>
+        <li><strong>Transparency</strong> &mdash; 0% (fully opaque) to 100% (fully transparent)</li>
+    </ul>
+</div>
+
+<div class="card">
+    <p><span class="model-tag model-tag-b">Model B</span></p>
+    <ul>
+        <li><strong>Visible</strong> &mdash; toggle Model B visibility</li>
+        <li><strong>Transparency</strong> &mdash; 0% (fully opaque) to 100% (fully transparent)</li>
+    </ul>
+</div>
+
+<h3>Display</h3>
+<ul>
+    <li><strong>Show Axes</strong> &mdash; toggle the 3D coordinate axes indicator (synced with global axes checkbox)</li>
+    <li><strong>Show Model Labels</strong> &mdash; floating labels showing filename for each model, projected onto the viewport</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="aero-tab">Aero Tab</h2>
+
+<p>For aerodynamic surface visualization (CFD results). Accepts three file types:</p>
+
+<table>
+    <tr><th>Input</th><th>Format</th><th>Description</th></tr>
+    <tr><td>Surface mesh</td><td><code>.lbmp</code></td><td>Triangulated surface with pressure/Cp/shear fields</td></tr>
+    <tr><td>Net forces</td><td><code>.csv</code></td><td>Per-object net force vectors</td></tr>
+    <tr><td>Nodal loads</td><td><code>.csv</code></td><td>Per-node load vectors for structural coupling</td></tr>
+</table>
+
+<h3>Features</h3>
+<ul>
+    <li><strong>Object Filter</strong> &mdash; select/deselect individual surface objects</li>
+    <li><strong>Color fields</strong> &mdash; Pressure (Pa), Cp, Shear Stress</li>
+    <li><strong>Force vectors</strong> &mdash; net forces (green-red) and nodal loads (orange-purple) with adjustable length scale</li>
+    <li><strong>Slicer</strong> &mdash; clip the model along X/Y/Z axis to inspect interior regions</li>
+    <li><strong>Scale modes</strong> &mdash; linear or logarithmic vector length scaling</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="navigation">3D Navigation</h2>
+
+<p>The viewport uses Babylon.js ArcRotateCamera with these mouse/keyboard controls:</p>
+
+<table>
+    <tr><th>Action</th><th>Control</th></tr>
+    <tr><td>Orbit (rotate)</td><td><span class="key-icon">LMB</span> drag</td></tr>
+    <tr><td>Pan</td><td><span class="key-icon">RMB</span> drag</td></tr>
+    <tr><td>Zoom</td><td><span class="key-icon">Scroll</span> wheel</td></tr>
+    <tr><td>Set pivot point</td><td><span class="key-icon">RMB</span> click (sets orbit center to clicked point)</td></tr>
+</table>
+
+<h3>Camera Framing Buttons</h3>
+<table>
+    <tr><th>Button</th><th>Description</th></tr>
+    <tr><td>Center All</td><td>Frame camera to fit all loaded data (aero + structural)</td></tr>
+    <tr><td>Center Aero</td><td>Frame to aerodynamic data only</td></tr>
+    <tr><td>Center Struct</td><td>Frame to structural data only (both models + offset)</td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="comparison">Dual-Model Comparison</h2>
+
+<p>LUDWIG supports loading two JFEM files simultaneously for visual comparison. This is especially useful for comparing OpenJFEM results against MYSTRAN reference solutions.</p>
+
+<h3>Typical Comparison Workflow</h3>
+<div class="workflow">
+    <div class="step"><span class="step-num">1</span> Run OpenJFEM on your model to get <code>model.jfem</code></div>
+    <div class="step"><span class="step-num">2</span> Run the MYSTRAN converter to get <code>model.MYSTRAN.jfem</code></div>
+    <div class="step"><span class="step-num">3</span> Open LUDWIG and switch to the <strong>Struct</strong> tab</div>
+    <div class="step"><span class="step-num">4</span> Load <code>model.jfem</code> into <span class="model-tag model-tag-a">Model A</span></div>
+    <div class="step"><span class="step-num">5</span> Load <code>model.MYSTRAN.jfem</code> into <span class="model-tag model-tag-b">Model B</span></div>
+    <div class="step"><span class="step-num">6</span> Switch to the <strong>Vis</strong> tab</div>
+    <div class="step"><span class="step-num">7</span> Increase the <strong>Vertical Offset</strong> slider to separate the models</div>
+    <div class="step"><span class="step-num">8</span> Adjust transparency to see through one model to the other</div>
+    <div class="step"><span class="step-num">9</span> Compare deformed shapes, stress patterns, and boundary conditions</div>
+</div>
+
+<div class="tip">
+Both models share the same color scale and deformation amplification, so colors and deformed shapes are directly comparable. The auto-scale scans both models to set a unified range.
+</div>
+
+<h3>Comparison Tips</h3>
+<ul>
+    <li><strong>Overlay mode</strong> &mdash; set offset to 0, make one model semi-transparent, to see shape differences directly</li>
+    <li><strong>Side-by-side</strong> &mdash; increase offset, keep both opaque, for color pattern comparison</li>
+    <li><strong>Toggle visibility</strong> &mdash; quickly switch between models using the Vis tab checkboxes</li>
+    <li><strong>Independent subcases</strong> &mdash; select different subcases for each model if needed</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="colorbar">Color Scale</h2>
+
+<p>The color bar at the bottom of the viewport shows the current mapping from result values to colors. It uses a jet-like palette (blue &rarr; cyan &rarr; green &rarr; yellow &rarr; red).</p>
+
+<h3>Scale Modes</h3>
+<ul>
+    <li><strong>Auto Scale</strong> &mdash; fits to data range (scans both models)</li>
+    <li><strong>Manual</strong> &mdash; uncheck Auto Scale and enter custom Min/Max values</li>
+    <li><strong>Symmetric</strong> &mdash; centers around zero (&plusmn;max), useful for signed quantities</li>
+</ul>
+
+<p>The color bar title shows the active field name. Labels show min and max values.</p>
+
+<!-- ================================================================ -->
+<h2 id="elements">Element Visualization</h2>
+
+<p>Each element type has a distinct visual representation:</p>
+
+<table>
+    <tr><th>Element</th><th>Rendering</th><th>Color Meaning</th></tr>
+    <tr>
+        <td>CQUAD4 / CTRIA3</td>
+        <td>Filled polygons with per-vertex color</td>
+        <td>Selected shell result field (Von Mises, Fx, etc.)</td>
+    </tr>
+    <tr>
+        <td>CBAR / CROD</td>
+        <td>Thick colored lines</td>
+        <td>Selected bar result field (axial force, etc.)</td>
+    </tr>
+    <tr>
+        <td>SPC</td>
+        <td><span class="swatch" style="background:#ffff00"></span> Yellow diamond markers</td>
+        <td>Constrained node locations</td>
+    </tr>
+    <tr>
+        <td>CELAS</td>
+        <td><span class="swatch" style="background:#00ff88"></span> Green lines</td>
+        <td>Spring element connections</td>
+    </tr>
+    <tr>
+        <td>RBE2</td>
+        <td><span class="swatch" style="background:#ff00ff"></span> Magenta star pattern</td>
+        <td>Master node (center) to dependent nodes</td>
+    </tr>
+    <tr>
+        <td>RBE3</td>
+        <td><span class="swatch" style="background:#ffd700"></span> Gold lines</td>
+        <td>Reference node to weighted grid points</td>
+    </tr>
+    <tr>
+        <td>Forces</td>
+        <td><span class="swatch" style="background:linear-gradient(to right,#ff0000,#ff6600)"></span> Red-orange arrows</td>
+        <td>Applied forces (length proportional to magnitude)</td>
+    </tr>
+    <tr>
+        <td>Moments</td>
+        <td><span class="swatch" style="background:linear-gradient(to right,#3366ff,#6699ff)"></span> Blue double-headed arrows</td>
+        <td>Applied moments (length proportional to magnitude)</td>
+    </tr>
+    <tr>
+        <td>Ghost</td>
+        <td>Semi-transparent gray wireframe</td>
+        <td>Undeformed reference shape</td>
+    </tr>
+    <tr>
+        <td>Nodes</td>
+        <td>Colored point cloud</td>
+        <td>Displacement magnitude (jet colormap)</td>
+    </tr>
+</table>
+
+<!-- ================================================================ -->
+<h2>Status Bar</h2>
+
+<p>The status bar at the bottom of the control panel shows a summary of loaded data:</p>
+<ul>
+    <li><strong>A:</strong> Model A filename, node count, element breakdown (Q=quads, T=trias, B=bars, R=rods, S=springs, RBE2, RBE3)</li>
+    <li><strong>B:</strong> Same for Model B (if loaded)</li>
+    <li><strong>Surface/Net/Nodal:</strong> Aero data counts (if loaded)</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2>Supported File Format</h2>
+
+<p>LUDWIG reads <code>.jfem</code> files (JFEM Binary Format v3), produced by the OpenJFEM solver and the MYSTRAN converter tool. The format contains:</p>
+<ul>
+    <li>Node coordinates and element connectivity</li>
+    <li>Constraint definitions (SPC, CELAS, RBE2, RBE3)</li>
+    <li>Per-subcase results: displacements, shell forces/strains, bar forces, rod forces</li>
+    <li>Applied forces and moments</li>
+</ul>
+
+<p>The binary format uses little-endian encoding with a magic header (<code>JFEM</code>) and is fully documented in <code>src/Export.jl</code>.</p>
+
+<!-- ================================================================ -->
+<h2>Browser Compatibility</h2>
+
+<table>
+    <tr><th>Browser</th><th>Status</th></tr>
+    <tr><td>Google Chrome 90+</td><td>Fully supported (recommended)</td></tr>
+    <tr><td>Microsoft Edge 90+</td><td>Fully supported</td></tr>
+    <tr><td>Mozilla Firefox 85+</td><td>Fully supported</td></tr>
+    <tr><td>Safari 15+</td><td>Works (WebGL2 required)</td></tr>
+</table>
+
+<div class="tip">
+For large models (50K+ nodes), Chrome or Edge typically offers the best WebGL performance. Ensure hardware acceleration is enabled in browser settings.
+</div>
+
+<!-- ================================================================ -->
+<div class="footer">
+    LUDWIG Post-Processor Guide &mdash; part of <a href="../README.md">OpenJFEM</a>
+    &mdash; see also <a href="../tools/GUIDE.html">Tools Guide</a>
+</div>
+
+</div>
+</body>
+</html>

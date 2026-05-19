@@ -1,0 +1,2885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUDWIG Post-Processing</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <style>
+        body, html { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #222; user-select: none; }
+        #renderCanvas { width: 100%; height: 100%; touch-action: none; outline: none; }
+
+        #ui-container {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(40, 40, 45, 0.95); padding: 15px;
+            border-radius: 6px; color: #ddd; z-index: 10;
+            width: 290px; border: 1px solid #555;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            max-height: 92vh; overflow-y: auto;
+        }
+
+        h2 { margin: 0 0 10px 0; font-size: 15px; color: #fff; border-bottom: 1px solid #666; padding-bottom: 5px; }
+        .section-title { font-size: 12px; font-weight: bold; color: #00d0ff; margin-top: 12px; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .row { margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; }
+        .key { color: #00d0ff; font-weight: bold; }
+
+        input[type=file] { width: 100%; font-size: 12px; margin-bottom: 5px; color: #ccc; }
+        input[type=range] { flex-grow: 1; margin: 0 5px; cursor: pointer; }
+        input[type=number] { width: 65px; background: #333; border: 1px solid #555; color: #fff; padding: 2px 5px; border-radius: 4px; }
+        select { width: 100%; background: #333; color: white; border: 1px solid #555; padding: 4px; border-radius: 4px; margin-bottom: 8px; }
+
+        .slider-container { margin-bottom: 5px; }
+        .slider-label { font-size: 11px; color: #aaa; display: flex; justify-content: space-between; }
+
+        .radio-group { display: flex; gap: 10px; margin-bottom: 5px; }
+        .checkbox-row { display: flex; align-items: center; font-size: 13px; margin-bottom: 5px; }
+        .checkbox-row input { margin-right: 8px; }
+
+        #stats { font-size: 11px; color: #aaa; margin-top: 10px; border-top: 1px solid #555; padding-top: 5px; line-height: 1.5; }
+
+        #selectionBox {
+            position: absolute;
+            border: 1px solid #00d0ff;
+            background-color: rgba(0, 208, 255, 0.1);
+            display: none; pointer-events: none; z-index: 100;
+        }
+
+        /* Color bar */
+        #colorBar {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 400px; height: 50px; z-index: 10; pointer-events: none;
+        }
+        #colorBar canvas { width: 100%; height: 20px; border: 1px solid #666; border-radius: 3px; }
+        .colorbar-labels { display: flex; justify-content: space-between; color: #ccc; font-size: 11px; margin-top: 2px; }
+        .colorbar-title { text-align: center; color: #fff; font-size: 12px; font-weight: bold; margin-bottom: 2px; }
+
+        /* Object filter */
+        #objectFilterContainer { display: none; }
+        #objectFilterContainer.visible { display: block; }
+        .object-list { max-height: 100px; overflow-y: auto; background: #2a2a2e; border: 1px solid #555; border-radius: 4px; padding: 4px; margin-bottom: 5px; }
+        .object-item { display: flex; align-items: center; padding: 3px 5px; font-size: 12px; cursor: pointer; border-radius: 3px; }
+        .object-item:hover { background: #3a3a3e; }
+        .object-item input { margin-right: 6px; cursor: pointer; }
+        .object-item label { cursor: pointer; flex-grow: 1; }
+        .object-item .obj-count { color: #888; font-size: 11px; margin-left: 5px; }
+        .object-btns { display: flex; gap: 5px; margin-bottom: 5px; }
+        .object-btns button {
+            flex: 1; padding: 3px 6px; font-size: 11px; cursor: pointer;
+            background: #444; color: #ccc; border: 1px solid #666; border-radius: 3px;
+        }
+        .object-btns button:hover { background: #555; color: #fff; }
+
+        /* Collapsible sections */
+        .collapse-header {
+            display: flex; align-items: center; cursor: pointer; padding: 4px 0;
+            border-bottom: 1px solid #444; margin-bottom: 5px;
+        }
+        .collapse-header:hover { color: #fff; }
+        .collapse-arrow { margin-right: 6px; font-size: 10px; transition: transform 0.15s; display: inline-block; }
+        .collapse-arrow.closed { transform: rotate(-90deg); }
+        .collapse-body { overflow: hidden; }
+        .collapse-body.hidden { display: none; }
+
+        .file-label { font-size: 11px; color: #888; margin-bottom: 2px; }
+
+        /* Legend swatches */
+        .legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+        /* Tab system */
+        .tab-bar {
+            display: flex; gap: 4px; margin-bottom: 10px;
+        }
+        .tab-btn {
+            flex: 1; padding: 6px 8px; font-size: 12px; font-weight: bold;
+            cursor: pointer; border: 1px solid #555; border-radius: 4px;
+            background: #333; color: #999; text-align: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .tab-btn:hover { background: #444; color: #ccc; }
+        .tab-btn.active { background: #00607a; color: #fff; border-color: #00a0cc; }
+    </style>
+</head>
+<body>
+
+    <div id="selectionBox"></div>
+
+    <div id="ui-container">
+        <div style="display:flex; align-items:center; gap:8px;">
+            <div id="btnCollapsePanel" title="Hide/Show panel" style="width:18px; height:18px; border-radius:50%; border:2px solid #888; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:10px; color:#888; flex-shrink:0; transition: border-color 0.15s, color 0.15s;" onmouseover="this.style.borderColor='#fff';this.style.color='#fff'" onmouseout="this.style.borderColor='#888';this.style.color='#888'">
+                <span id="collapseIcon">&#9668;</span>
+            </div>
+            <h2 style="flex-grow:1;">LUDWIG Post-Processing</h2>
+        </div>
+
+        <div id="panelBody">
+        <!-- PANEL TOGGLE BAR -->
+        <div class="tab-bar">
+            <div class="tab-btn active" id="tabAero" onclick="togglePanel('aero')">Aero</div>
+            <div class="tab-btn" id="tabStruct" onclick="togglePanel('struct')">Struct</div>
+            <div class="tab-btn" id="tabVis" onclick="togglePanel('vis')">Vis</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!--  AERO TAB CONTENT                                            -->
+        <!-- ============================================================ -->
+        <div id="aeroContent">
+            <!-- FILE INPUTS -->
+            <div class="file-label">Surface mesh (.lbmp):</div>
+            <input type="file" id="fileInputLBMP" accept=".lbmp">
+            <div class="file-label">Net forces (.csv):</div>
+            <input type="file" id="fileInputCSV" accept=".csv">
+            <div class="file-label">Nodal loads (.csv):</div>
+            <input type="file" id="fileInputNodal" accept=".csv">
+
+            <!-- OBJECT FILTER -->
+            <div id="objectFilterContainer">
+                <div class="section-title">Object Filter</div>
+                <div class="object-btns">
+                    <button id="btnSelectAll">Select All</button>
+                    <button id="btnSelectNone">Select None</button>
+                </div>
+                <div class="object-list" id="objectList"></div>
+            </div>
+
+            <!-- SURFACE SECTION -->
+            <div class="collapse-header" onclick="toggleSection('surfaceBody', this)">
+                <span class="collapse-arrow" id="arrowSurface">&#9660;</span>
+                <span class="section-title" style="margin:0">Surface Mesh</span>
+            </div>
+            <div class="collapse-body" id="surfaceBody">
+                <div class="section-title" style="margin-top:2px">Color Field</div>
+                <select id="fieldSelect">
+                    <option value="pressure" selected>Pressure (Pa)</option>
+                    <option value="cp">Cp (Pressure Coefficient)</option>
+                    <option value="shear">Shear Stress (Pa)</option>
+                </select>
+
+                <div class="section-title">Color Scale</div>
+                <div class="row">
+                    <label>Min:</label>
+                    <input type="number" id="surfColorMin" step="any" value="0.0">
+                    <label>Max:</label>
+                    <input type="number" id="surfColorMax" step="any" value="1.0">
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkAutoScale" checked>
+                    <label for="chkAutoScale">Auto Scale</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkSymmetric">
+                    <label for="chkSymmetric">Symmetric (&plusmn;max)</label>
+                </div>
+
+                <div class="section-title">Display</div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowSurface" checked>
+                    <label for="chkShowSurface">Show Surface</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkWireframe">
+                    <label for="chkWireframe">Show Wireframe</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkBackface" checked>
+                    <label for="chkBackface">Double-sided</label>
+                </div>
+                <div class="row">
+                    <label>Lighting:</label>
+                    <input type="range" id="lightSlider" min="0" max="200" step="5" value="100">
+                </div>
+            </div>
+
+            <!-- VECTORS SECTION -->
+            <div class="collapse-header" onclick="toggleSection('vectorBody', this)">
+                <span class="collapse-arrow" id="arrowVector">&#9660;</span>
+                <span class="section-title" style="margin:0">Force Vectors</span>
+            </div>
+            <div class="collapse-body" id="vectorBody">
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowNetForces" checked>
+                    <label for="chkShowNetForces"><span class="legend-swatch" style="background: linear-gradient(to right, #33ff88, #ff4444);"></span>Net Forces</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowNodalLoads" checked>
+                    <label for="chkShowNodalLoads"><span class="legend-swatch" style="background: linear-gradient(to right, #ffaa33, #aa33ff);"></span>Nodal Loads</label>
+                </div>
+
+                <div class="section-title" style="margin-top:2px">Vector Length Scale</div>
+                <div class="row">
+                    <input type="range" id="scaleSlider" min="0.1" max="10.0" step="0.1" value="1.0">
+                    <input type="number" id="scaleNumber" min="0.1" max="100.0" step="0.1" value="1.0">
+                </div>
+                <div class="radio-group row">
+                    <div><input type="radio" name="scaleMode" value="linear" checked id="rLin"><label for="rLin"> Linear</label></div>
+                    <div><input type="radio" name="scaleMode" value="log" id="rLog"><label for="rLog"> Log</label></div>
+                </div>
+
+                <div class="section-title">Vector Color Scale</div>
+                <div class="row">
+                    <label>Min:</label>
+                    <input type="number" id="vecColorMin" step="0.1" value="0.0">
+                    <label>Max:</label>
+                    <input type="number" id="vecColorMax" step="0.1" value="1.0">
+                </div>
+
+                <div class="section-title">Point Size</div>
+                <div class="row">
+                    <input type="range" id="pointSlider" min="0" max="20" step="1" value="3">
+                    <input type="number" id="pointNumber" min="0" max="50" step="1" value="3">
+                </div>
+
+                <div class="section-title">Slicer</div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowPlanes">
+                    <label for="chkShowPlanes">Show Clipping Planes</label>
+                </div>
+                <label style="font-size:12px; color:#ccc;">Active Axis:</label>
+                <select id="axisSelect">
+                    <option value="x">X Axis</option>
+                    <option value="y">Y Axis</option>
+                    <option value="z" selected>Z Axis (Height)</option>
+                </select>
+                <div class="slider-container">
+                    <div class="slider-label"><span>Min Clip</span> <span id="lblMin">0.00</span></div>
+                    <input type="range" id="sliceMin" min="0" max="1000" step="1" value="0">
+                </div>
+                <div class="slider-container">
+                    <div class="slider-label"><span>Max Clip</span> <span id="lblMax">100.00</span></div>
+                    <input type="range" id="sliceMax" min="0" max="1000" step="1" value="1000">
+                </div>
+            </div>
+        </div><!-- end aeroContent -->
+
+        <!-- ============================================================ -->
+        <!--  STRUCT TAB CONTENT                                          -->
+        <!-- ============================================================ -->
+        <div id="structContent" style="display:none;">
+            <div class="file-label" style="color:#4fc3f7">Model A (.jfem):</div>
+            <input type="file" id="fileInputJFEM_A" accept=".jfem">
+            <div id="labelA" style="font-size:11px;color:#4fc3f7;margin-bottom:4px;">—</div>
+            <div class="file-label" style="color:#ff8a65">Model B (.jfem):</div>
+            <input type="file" id="fileInputJFEM_B" accept=".jfem">
+            <div id="labelB" style="font-size:11px;color:#ff8a65;margin-bottom:4px;">—</div>
+
+            <!-- MODEL UNITS -->
+            <div class="section-title">Model Units</div>
+            <div class="radio-group">
+                <label style="font-size:12px;"><input type="radio" name="structUnits" id="unitMM" value="mm" checked> mm</label>
+                <label style="font-size:12px;"><input type="radio" name="structUnits" id="unitM" value="m"> m</label>
+            </div>
+
+            <!-- SUBCASES (per model) -->
+            <div class="section-title">Subcases</div>
+            <div class="row"><label style="color:#4fc3f7;width:18px;flex-shrink:0;">A:</label><select id="subcaseSelectA" style="flex:1"><option value="0">No data</option></select></div>
+            <div class="row"><label style="color:#ff8a65;width:18px;flex-shrink:0;">B:</label><select id="subcaseSelectB" style="flex:1"><option value="0">No data</option></select></div>
+
+            <!-- RESULT FIELD -->
+            <div class="collapse-header" onclick="toggleSection('structResultBody', this)">
+                <span class="collapse-arrow">&#9660;</span>
+                <span class="section-title" style="margin:0">Result Field</span>
+            </div>
+            <div class="collapse-body" id="structResultBody">
+                <div class="section-title" style="margin-top:2px">Shell Results</div>
+                <select id="structFieldSelect">
+                    <option value="vonmises" selected>Von Mises Stress</option>
+                    <option value="fx">Fx (membrane)</option>
+                    <option value="fy">Fy (membrane)</option>
+                    <option value="fxy">Fxy (membrane)</option>
+                    <option value="mx">Mx (bending)</option>
+                    <option value="my">My (bending)</option>
+                    <option value="mxy">Mxy (bending)</option>
+                    <option value="thickness">Thickness</option>
+                    <option value="strain_energy">Strain Energy</option>
+                    <option value="disp_mag">Disp. Magnitude</option>
+                    <option value="disp_tx">Tx (translation)</option>
+                    <option value="disp_ty">Ty (translation)</option>
+                    <option value="disp_tz">Tz (translation)</option>
+                    <option value="disp_rx">Rx (rotation)</option>
+                    <option value="disp_ry">Ry (rotation)</option>
+                    <option value="disp_rz">Rz (rotation)</option>
+                </select>
+                <div class="section-title">Bar Results</div>
+                <select id="structBarFieldSelect">
+                    <option value="axial" selected>Axial Force</option>
+                    <option value="shear_1">Shear 1</option>
+                    <option value="shear_2">Shear 2</option>
+                    <option value="torque">Torque</option>
+                    <option value="moment_a1">Moment A1</option>
+                    <option value="moment_a2">Moment A2</option>
+                    <option value="bar_vonmises">Von Mises</option>
+                    <option value="section_area">Section Area</option>
+                    <option value="bar_strain_energy">Strain Energy</option>
+                </select>
+            </div>
+
+            <!-- COLOR SCALE -->
+            <div class="collapse-header" onclick="toggleSection('structColorBody', this)">
+                <span class="collapse-arrow">&#9660;</span>
+                <span class="section-title" style="margin:0">Color Scale</span>
+            </div>
+            <div class="collapse-body" id="structColorBody">
+                <div class="section-title" style="margin-top:2px">Shell Range</div>
+                <div class="row">
+                    <label>Min:</label>
+                    <input type="number" id="structColorMin" step="any" value="0.0">
+                    <label>Max:</label>
+                    <input type="number" id="structColorMax" step="any" value="1.0">
+                </div>
+                <div class="section-title">Bar Range</div>
+                <div class="row">
+                    <label>Min:</label>
+                    <input type="number" id="structBarColorMin" step="any" value="0.0">
+                    <label>Max:</label>
+                    <input type="number" id="structBarColorMax" step="any" value="1.0">
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkStructAutoScale" checked>
+                    <label for="chkStructAutoScale">Auto Scale</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkStructSymmetric">
+                    <label for="chkStructSymmetric">Symmetric (&plusmn;max)</label>
+                </div>
+            </div>
+
+            <!-- DEFORMATION -->
+            <div class="collapse-header" onclick="toggleSection('structDefBody', this)">
+                <span class="collapse-arrow">&#9660;</span>
+                <span class="section-title" style="margin:0">Deformation</span>
+            </div>
+            <div class="collapse-body" id="structDefBody">
+                <div class="slider-container">
+                    <div class="slider-label"><span>Scale</span> <span id="lblDefScale">0</span></div>
+                    <input type="range" id="defScaleSlider" min="0" max="1000" step="1" value="0">
+                </div>
+                <div class="row">
+                    <label>Value:</label>
+                    <input type="number" id="defScaleNumber" step="any" value="0" style="width:80px;">
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkAutoDefScale" checked>
+                    <label for="chkAutoDefScale">Auto Scale</label>
+                </div>
+            </div>
+
+            <!-- DISPLAY OPTIONS -->
+            <div class="collapse-header" onclick="toggleSection('structDispBody', this)">
+                <span class="collapse-arrow">&#9660;</span>
+                <span class="section-title" style="margin:0">Display</span>
+            </div>
+            <div class="collapse-body" id="structDispBody">
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowShells" checked>
+                    <label for="chkShowShells">Show Shells</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowBars" checked>
+                    <label for="chkShowBars">Show Bars/Rods</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkStructWireframe">
+                    <label for="chkStructWireframe">Wireframe Overlay</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowGhost">
+                    <label for="chkShowGhost">Undeformed Ghost</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkStructBackface" checked>
+                    <label for="chkStructBackface">Double-sided</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowNodes">
+                    <label for="chkShowNodes">Show Nodes</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowSPC" checked>
+                    <label for="chkShowSPC">Show SPCs</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowSprings">
+                    <label for="chkShowSprings">Show Springs</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowRBE2">
+                    <label for="chkShowRBE2">Show RBE2</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowRBE3">
+                    <label for="chkShowRBE3">Show RBE3</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowForces">
+                    <label for="chkShowForces">Show Forces</label>
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="chkShowMoments">
+                    <label for="chkShowMoments">Show Moments</label>
+                </div>
+            </div>
+        </div><!-- end structContent -->
+
+        <!-- ============================================================ -->
+        <!--  VISUALIZATION TAB CONTENT                                   -->
+        <!-- ============================================================ -->
+        <div id="visContent" style="display:none;">
+            <div class="section-title">Layout</div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Vertical Offset</span> <span id="lblZOffset">0.00</span></div>
+                <input type="range" id="zOffsetSlider" min="0" max="1000" step="1" value="0">
+            </div>
+
+            <div class="section-title" style="color:#4fc3f7">Model A</div>
+            <div class="checkbox-row">
+                <input type="checkbox" id="chkShowModelA" checked>
+                <label for="chkShowModelA" style="color:#4fc3f7">Visible</label>
+            </div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Transparency</span> <span id="lblAlphaA">0%</span></div>
+                <input type="range" id="alphaSliderA" min="0" max="100" step="1" value="0">
+            </div>
+
+            <div class="section-title" style="color:#ff8a65">Model B</div>
+            <div class="checkbox-row">
+                <input type="checkbox" id="chkShowModelB" checked>
+                <label for="chkShowModelB" style="color:#ff8a65">Visible</label>
+            </div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Transparency</span> <span id="lblAlphaB">0%</span></div>
+                <input type="range" id="alphaSliderB" min="0" max="100" step="1" value="0">
+            </div>
+
+            <div class="section-title">Display</div>
+            <div class="checkbox-row">
+                <input type="checkbox" id="chkVisAxes" checked>
+                <label for="chkVisAxes">Show Axes</label>
+            </div>
+            <div class="checkbox-row">
+                <input type="checkbox" id="chkVisLabels" checked>
+                <label for="chkVisLabels">Show Model Labels</label>
+            </div>
+
+            <div class="section-title">Lighting</div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Key Light</span> <span id="lblKeyLight">100%</span></div>
+                <input type="range" id="sliderKeyLight" min="0" max="200" step="5" value="100">
+            </div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Fill Light</span> <span id="lblFillLight">40%</span></div>
+                <input type="range" id="sliderFillLight" min="0" max="200" step="5" value="40">
+            </div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Rim Light</span> <span id="lblRimLight">25%</span></div>
+                <input type="range" id="sliderRimLight" min="0" max="200" step="5" value="25">
+            </div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Ambient</span> <span id="lblAmbLight">15%</span></div>
+                <input type="range" id="sliderAmbLight" min="0" max="100" step="5" value="15">
+            </div>
+            <div class="slider-container">
+                <div class="slider-label"><span>Emissive</span> <span id="lblEmissive">8%</span></div>
+                <input type="range" id="sliderEmissive" min="0" max="50" step="1" value="8">
+            </div>
+        </div><!-- end visContent -->
+
+        <!-- GLOBAL VIEW CONTROLS (always visible) -->
+        <div id="globalControls" style="margin-top:8px; border-top:1px solid #444; padding-top:8px;">
+            <div class="checkbox-row">
+                <input type="checkbox" id="chkShowAxes" checked>
+                <label for="chkShowAxes">Show Axes</label>
+            </div>
+            <div style="display:flex; gap:3px; margin-top:4px;">
+                <button id="btnCenterAll" style="flex:1; padding:4px 2px; font-size:11px; cursor:pointer; background:#444; color:#ccc; border:1px solid #666; border-radius:4px;" title="Frame camera to fit all loaded data">Center All</button>
+                <button id="btnCenterAero" style="flex:1; padding:4px 2px; font-size:11px; cursor:pointer; background:#444; color:#ccc; border:1px solid #666; border-radius:4px;" title="Frame camera to aerodynamic data">Center Aero</button>
+                <button id="btnCenterStruct" style="flex:1; padding:4px 2px; font-size:11px; cursor:pointer; background:#444; color:#ccc; border:1px solid #666; border-radius:4px;" title="Frame camera to structural data">Center Struct</button>
+            </div>
+        </div>
+
+        <div id="stats">No files loaded.</div>
+
+        <div id="controlsHelp" style="margin-top:15px; font-size:11px; color:#bbb; line-height: 1.5;">
+            <strong>Controls:</strong><br>
+            <span class="key">Left Drag</span> : Rotate<br>
+            <span class="key">Middle Drag</span> : Pan<br>
+            <span class="key">Right Click</span> : Set Center<br>
+            <span class="key">Shift + Left</span> : Zoom Window
+        </div>
+        </div><!-- end panelBody -->
+    </div>
+
+    <!-- Color bar -->
+    <div id="colorBar" style="display:none;">
+        <div class="colorbar-title" id="colorBarTitle">Pressure (Pa)</div>
+        <canvas id="colorBarCanvas" height="20"></canvas>
+        <div class="colorbar-labels">
+            <span id="cbLabelMin">0</span>
+            <span id="cbLabelMid">0.5</span>
+            <span id="cbLabelMax">1</span>
+        </div>
+        <div id="eigenvalueLabel" style="text-align:center;color:#ffd740;font-size:13px;font-weight:bold;margin-top:2px;display:none;"></div>
+    </div>
+
+    <!-- Model labels (positioned via JS) -->
+    <div id="modelLabelA" style="position:absolute;color:#4fc3f7;font-size:14px;font-weight:bold;z-index:10;pointer-events:none;text-shadow:1px 1px 2px #000;display:none;">Model A</div>
+    <div id="modelLabelB" style="position:absolute;color:#ff8a65;font-size:14px;font-weight:bold;z-index:10;pointer-events:none;text-shadow:1px 1px 2px #000;display:none;">Model B</div>
+
+    <canvas id="renderCanvas"></canvas>
+
+    <script>
+        // =================================================================
+        //  TAB SYSTEM
+        // =================================================================
+        // Exclusive tab system — panels are mutually exclusive,
+        // but 3D meshes from both sources persist and render simultaneously
+        let activeTab = 'aero';  // 'aero', 'struct', or 'none'
+        let panelCollapsed = false;
+
+        function togglePanel(panel) {
+            const aeroDiv = document.getElementById('aeroContent');
+            const structDiv = document.getElementById('structContent');
+            const visDiv = document.getElementById('visContent');
+            const tabAero = document.getElementById('tabAero');
+            const tabStruct = document.getElementById('tabStruct');
+            const tabVis = document.getElementById('tabVis');
+
+            // Clicking the active tab toggles it off → 'none'
+            if (panel === activeTab) {
+                activeTab = 'none';
+            } else {
+                activeTab = panel;
+            }
+
+            tabAero.classList.toggle('active', activeTab === 'aero');
+            tabStruct.classList.toggle('active', activeTab === 'struct');
+            tabVis.classList.toggle('active', activeTab === 'vis');
+            aeroDiv.style.display = activeTab === 'aero' ? '' : 'none';
+            structDiv.style.display = activeTab === 'struct' ? '' : 'none';
+            visDiv.style.display = activeTab === 'vis' ? '' : 'none';
+            updateMinimalMode();
+        }
+
+        function updateMinimalMode() {
+            const stats = document.getElementById('stats');
+            const help = document.getElementById('controlsHelp');
+            const anyVisible = activeTab !== 'none';
+            if (stats) stats.style.display = anyVisible ? '' : 'none';
+            if (help) help.style.display = anyVisible ? '' : 'none';
+        }
+
+        function collapsePanel() {
+            panelCollapsed = !panelCollapsed;
+            const body = document.getElementById('panelBody');
+            const icon = document.getElementById('collapseIcon');
+            if (panelCollapsed) {
+                body.style.display = 'none';
+                icon.innerHTML = '&#9658;';
+            } else {
+                body.style.display = '';
+                icon.innerHTML = '&#9668;';
+            }
+        }
+
+        // Alias for programmatic calls
+        function switchTab(tab) { togglePanel(tab); }
+
+        // =================================================================
+        //  COLLAPSIBLE SECTIONS
+        // =================================================================
+        function toggleSection(bodyId, headerEl) {
+            const body = document.getElementById(bodyId);
+            const arrow = headerEl.querySelector('.collapse-arrow');
+            body.classList.toggle('hidden');
+            arrow.classList.toggle('closed');
+        }
+
+        // =================================================================
+        //  1. SCENE SETUP
+        // =================================================================
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true });
+        const selectionBox = document.getElementById("selectionBox");
+        canvas.oncontextmenu = e => e.preventDefault();
+
+        // Dual-model architecture: two JFEM model slots
+        const models = [
+            { femData: null, bounds: null, filename: '' },
+            { femData: null, bounds: null, filename: '' }
+        ];
+        const modelMeshes = [
+            { shell:null, bar:null, wire:null, ghost:null, nodes:null, celas:null, rbe2:null, rbe3:null, spc:null, force:null, moment:null },
+            { shell:null, bar:null, wire:null, ghost:null, nodes:null, celas:null, rbe2:null, rbe3:null, spc:null, force:null, moment:null }
+        ];
+        let femUnitScale = 0.001;  // default: mm → m
+        let combinedFEMBounds = null;
+
+        // Aero meshes
+        let surfaceMesh = null;
+        let wireframeMesh = null;
+        let netVectorMesh = null;
+        let netPointsMesh = null;
+        let nodalVectorMesh = null;
+        let nodalPointsMesh = null;
+        let pivotMarker = null;
+        let minPlane = null;
+        let maxPlane = null;
+        let axesViewer = null;
+        let light1 = null;
+        let light2 = null;
+        let light3 = null;
+        let lightAmb = null;
+        let currentEmissive = 0.08;
+
+        // Aero data stores
+        let meshData = null;
+        let rawNetVectors = [];
+        let rawNodalVectors = [];
+        let csvNetObjectNames = new Set();
+        let csvNodalObjectNames = new Set();
+
+        // Unified object filter
+        let allObjectNames = new Set();
+        let activeObjects = new Set();
+
+        let bounds = { min: {x:0,y:0,z:0}, max: {x:1,y:1,z:1}, center: {x:0,y:0,z:0}, size: 1 };
+
+        // Z-offset for Model B
+        function getModelZOffset(idx) {
+            if (idx === 0) return 0;
+            const slider = document.getElementById('zOffsetSlider');
+            if (!slider) return 0;
+            const sliderVal = parseInt(slider.value) / 1000;
+            const refSize = models[0].bounds ? models[0].bounds.size : (combinedFEMBounds ? combinedFEMBounds.size : 1);
+            return sliderVal * refSize * 2;
+        }
+
+        // Model transparency
+        function getModelAlpha(idx) {
+            const slider = document.getElementById(idx === 0 ? 'alphaSliderA' : 'alphaSliderB');
+            return slider ? 1.0 - parseInt(slider.value) / 100 : 1.0;
+        }
+
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.useRightHandedSystem = true;
+            scene.clearColor = new BABYLON.Color4(0.15, 0.15, 0.18, 1);
+
+            const camera = new BABYLON.ArcRotateCamera("camera", 0, Math.PI / 3, 10, BABYLON.Vector3.Zero(), scene);
+            camera.upVector = new BABYLON.Vector3(0, 0, 1);
+            camera.inputs.clear();
+            camera.inputs.addMouseWheel();
+            camera.inputs.addPointers();
+            camera.inputs.attached.pointers.buttons = [0, 1];
+            camera.inputs.attached.pointers._panningMouseButton = 1;
+            camera.attachControl(canvas, true, false, 1);
+            camera._panningMouseButton = 1;
+            camera.panningSensibility = 500;
+            camera.angularSensibilityX = 1000;
+            camera.angularSensibilityY = 1000;
+            camera.wheelDeltaPercentage = 0.12;
+            camera.lowerBetaLimit = null;
+            camera.upperBetaLimit = null;
+            camera.minZ = 0.01;
+
+            // === THREE-POINT WORLD-SPACE LIGHTING (ParaView LightKit style) ===
+            // World-fixed lights: orbiting the model changes shading, revealing curvature.
+            // Key:Fill:Rim ratio ≈ 1.0 : 0.4 : 0.25
+
+            // KEY LIGHT — upper-left-front, dominant source for shape definition
+            light1 = new BABYLON.DirectionalLight("keyLight",
+                new BABYLON.Vector3(-1, -1, -0.8).normalize(), scene);
+            light1.intensity = 1.0;
+            light1.diffuse  = new BABYLON.Color3(1.0, 0.98, 0.95);
+            light1.specular = new BABYLON.Color3(0.8, 0.8, 0.8);
+
+            // FILL LIGHT — right side, lower intensity, cooler color
+            light2 = new BABYLON.DirectionalLight("fillLight",
+                new BABYLON.Vector3(1, -0.5, -0.5).normalize(), scene);
+            light2.intensity = 0.4;
+            light2.diffuse  = new BABYLON.Color3(0.85, 0.88, 1.0);
+            light2.specular = new BABYLON.Color3(0.1, 0.1, 0.1);
+
+            // RIM / BACK LIGHT — behind and above, silhouette separation
+            light3 = new BABYLON.DirectionalLight("rimLight",
+                new BABYLON.Vector3(0.2, 0.5, 1.0).normalize(), scene);
+            light3.intensity = 0.25;
+            light3.diffuse  = new BABYLON.Color3(0.9, 0.9, 1.0);
+            light3.specular = new BABYLON.Color3(0.0, 0.0, 0.0);
+
+            // AMBIENT — very low hemispheric fill to prevent pure-black voids
+            lightAmb = new BABYLON.HemisphericLight("ambientHemi",
+                new BABYLON.Vector3(0, 1, 0), scene);
+            lightAmb.intensity   = 0.15;
+            lightAmb.diffuse     = new BABYLON.Color3(0.7, 0.75, 0.9);
+            lightAmb.groundColor = new BABYLON.Color3(0.4, 0.35, 0.3);
+            lightAmb.specular    = new BABYLON.Color3(0.0, 0.0, 0.0);
+
+            pivotMarker = BABYLON.MeshBuilder.CreateSphere("pivot", { diameter: 0.1 }, scene);
+            const mat = new BABYLON.StandardMaterial("pivotMat", scene);
+            mat.emissiveColor = new BABYLON.Color3(1, 0.6, 0);
+            mat.disableLighting = true;
+            pivotMarker.material = mat;
+            pivotMarker.isVisible = false;
+            pivotMarker.isPickable = false;
+
+            // Slicing planes
+            const planeMat = new BABYLON.StandardMaterial("planeMat", scene);
+            planeMat.diffuseColor = new BABYLON.Color3(0, 0.8, 1);
+            planeMat.alpha = 0.2;
+            planeMat.backFaceCulling = false;
+            planeMat.disableLighting = true;
+
+            minPlane = BABYLON.MeshBuilder.CreatePlane("minPlane", { size: 1 }, scene);
+            minPlane.material = planeMat;
+            minPlane.isVisible = false;
+            minPlane.isPickable = false;
+
+            maxPlane = BABYLON.MeshBuilder.CreatePlane("maxPlane", { size: 1 }, scene);
+            maxPlane.material = planeMat;
+            maxPlane.isVisible = false;
+            maxPlane.isPickable = false;
+
+            return scene;
+        };
+
+        const scene = createScene();
+        engine.runRenderLoop(() => {
+            scene.render();
+            if (typeof updateModelLabels === 'function') updateModelLabels();
+        });
+        window.addEventListener("resize", () => engine.resize());
+
+        // =================================================================
+        //  2. UI ELEMENTS (AERO)
+        // =================================================================
+        // Surface controls
+        const fieldSelect = document.getElementById('fieldSelect');
+        const surfColorMin = document.getElementById('surfColorMin');
+        const surfColorMax = document.getElementById('surfColorMax');
+        const chkAutoScale = document.getElementById('chkAutoScale');
+        const chkSymmetric = document.getElementById('chkSymmetric');
+        const chkShowSurface = document.getElementById('chkShowSurface');
+        const chkWireframe = document.getElementById('chkWireframe');
+        const chkBackface = document.getElementById('chkBackface');
+        const lightSlider = document.getElementById('lightSlider');
+
+        // Vector controls
+        const chkShowNetForces = document.getElementById('chkShowNetForces');
+        const chkShowNodalLoads = document.getElementById('chkShowNodalLoads');
+        const scaleSlider = document.getElementById('scaleSlider');
+        const scaleNumber = document.getElementById('scaleNumber');
+        const radios = document.getElementsByName('scaleMode');
+        const vecColorMin = document.getElementById('vecColorMin');
+        const vecColorMax = document.getElementById('vecColorMax');
+        const pointSlider = document.getElementById('pointSlider');
+        const pointNumber = document.getElementById('pointNumber');
+        const axisSelect = document.getElementById('axisSelect');
+        const sliceMin = document.getElementById('sliceMin');
+        const sliceMax = document.getElementById('sliceMax');
+        const lblMin = document.getElementById('lblMin');
+        const lblMax = document.getElementById('lblMax');
+        const chkShowPlanes = document.getElementById('chkShowPlanes');
+
+        const objectFilterContainer = document.getElementById('objectFilterContainer');
+        const objectListDiv = document.getElementById('objectList');
+        const btnSelectAll = document.getElementById('btnSelectAll');
+        const btnSelectNone = document.getElementById('btnSelectNone');
+
+        // Surface events
+        fieldSelect.addEventListener('change', () => { surfAutoScale(); rebuildSurface(); });
+        surfColorMin.addEventListener('input', () => { chkAutoScale.checked = false; rebuildSurface(); });
+        surfColorMax.addEventListener('input', () => { chkAutoScale.checked = false; rebuildSurface(); });
+        chkAutoScale.addEventListener('change', () => { if (chkAutoScale.checked) { surfAutoScale(); rebuildSurface(); } });
+        chkSymmetric.addEventListener('change', () => { if (chkAutoScale.checked) surfAutoScale(); rebuildSurface(); });
+        chkShowSurface.addEventListener('change', () => { rebuildSurface(); });
+        chkWireframe.addEventListener('change', updateWireframe);
+        chkBackface.addEventListener('change', updateBackface);
+        lightSlider.addEventListener('input', updateLighting);
+
+        // Vector events
+        chkShowNetForces.addEventListener('change', () => { rebuildAllVectors(); buildAllPoints(); });
+        chkShowNodalLoads.addEventListener('change', () => { rebuildAllVectors(); buildAllPoints(); });
+        scaleSlider.addEventListener('input', () => { scaleNumber.value = scaleSlider.value; rebuildAllVectors(); });
+        scaleNumber.addEventListener('input', () => { scaleSlider.value = scaleNumber.value; rebuildAllVectors(); });
+        radios.forEach(r => r.addEventListener('change', rebuildAllVectors));
+        vecColorMin.addEventListener('input', rebuildAllVectors);
+        vecColorMax.addEventListener('input', rebuildAllVectors);
+        pointSlider.addEventListener('input', () => { pointNumber.value = pointSlider.value; updateAllPointSizes(); });
+        pointNumber.addEventListener('input', () => { pointSlider.value = pointNumber.value; updateAllPointSizes(); });
+        axisSelect.addEventListener('change', rebuildAllVectors);
+        sliceMin.addEventListener('input', rebuildAllVectors);
+        sliceMax.addEventListener('input', rebuildAllVectors);
+        chkShowPlanes.addEventListener('change', rebuildAllVectors);
+
+        // Object filter events
+        btnSelectAll.addEventListener('click', () => {
+            activeObjects = new Set(allObjectNames);
+            updateObjectCheckboxes();
+            onObjectFilterChanged();
+        });
+        btnSelectNone.addEventListener('click', () => {
+            activeObjects.clear();
+            updateObjectCheckboxes();
+            onObjectFilterChanged();
+        });
+
+        function onObjectFilterChanged() {
+            if (meshData) { surfAutoScale(); rebuildSurface(); }
+            buildAllPoints();
+            rebuildAllVectors();
+            updateStats();
+        }
+
+        // Convenience wrappers
+        function rebuildAllVectors() {
+            rebuildVectors(rawNetVectors, 'net');
+            rebuildVectors(rawNodalVectors, 'nodal');
+            const axis = axisSelect.value;
+            const showPlanes = chkShowPlanes.checked;
+            const dMin = bounds.min[axis];
+            const dMax = bounds.max[axis];
+            const dRange = dMax - dMin || 1;
+            const userMin = (parseFloat(sliceMin.value) / 1000) * dRange + dMin;
+            const userMax = (parseFloat(sliceMax.value) / 1000) * dRange + dMin;
+            lblMin.innerText = userMin.toFixed(2);
+            lblMax.innerText = userMax.toFixed(2);
+            updateSlicerPlanes(axis, userMin, userMax, showPlanes);
+        }
+
+        function buildAllPoints() {
+            buildStaticPoints(rawNetVectors, 'net');
+            buildStaticPoints(rawNodalVectors, 'nodal');
+        }
+
+        function updateAllPointSizes() {
+            const ps = parseFloat(pointNumber.value);
+            if (netPointsMesh && netPointsMesh.material) netPointsMesh.material.pointSize = ps;
+            if (nodalPointsMesh && nodalPointsMesh.material) nodalPointsMesh.material.pointSize = ps;
+        }
+
+        // =================================================================
+        //  2B. UI ELEMENTS (STRUCT)
+        // =================================================================
+        const subcaseSelectA = document.getElementById('subcaseSelectA');
+        const subcaseSelectB = document.getElementById('subcaseSelectB');
+        const structFieldSelect = document.getElementById('structFieldSelect');
+        const structBarFieldSelect = document.getElementById('structBarFieldSelect');
+        const structColorMin = document.getElementById('structColorMin');
+        const structColorMax = document.getElementById('structColorMax');
+        const structBarColorMin = document.getElementById('structBarColorMin');
+        const structBarColorMax = document.getElementById('structBarColorMax');
+        const chkStructAutoScale = document.getElementById('chkStructAutoScale');
+        const chkStructSymmetric = document.getElementById('chkStructSymmetric');
+        const defScaleSlider = document.getElementById('defScaleSlider');
+        const defScaleNumber = document.getElementById('defScaleNumber');
+        const lblDefScale = document.getElementById('lblDefScale');
+        const chkAutoDefScale = document.getElementById('chkAutoDefScale');
+        const chkShowShells = document.getElementById('chkShowShells');
+        const chkShowBars = document.getElementById('chkShowBars');
+        const chkStructWireframe = document.getElementById('chkStructWireframe');
+        const chkShowGhost = document.getElementById('chkShowGhost');
+        const chkStructBackface = document.getElementById('chkStructBackface');
+        const chkShowSPC = document.getElementById('chkShowSPC');
+        const chkShowSprings = document.getElementById('chkShowSprings');
+        const chkShowRBE2 = document.getElementById('chkShowRBE2');
+        const chkShowRBE3 = document.getElementById('chkShowRBE3');
+        const chkShowForces = document.getElementById('chkShowForces');
+        const chkShowMoments = document.getElementById('chkShowMoments');
+
+        // Unit selector for structural model
+        const unitMM = document.getElementById('unitMM');
+        const unitM = document.getElementById('unitM');
+        function onUnitChange() {
+            femUnitScale = unitMM.checked ? 0.001 : 1.0;
+            updateFEMBounds();
+            if (combinedFEMBounds) { setBoundsFrom(combinedFEMBounds); frameToBounds(combinedFEMBounds); }
+            rebuildAllStructMeshes();
+        }
+        unitMM.addEventListener('change', onUnitChange);
+        unitM.addEventListener('change', onUnitChange);
+
+        function onSubcaseChangeA() { structAutoScale(); rebuildStructMeshFor(0); }
+        function onSubcaseChangeB() { structAutoScale(); rebuildStructMeshFor(1); }
+        subcaseSelectA.addEventListener('change', onSubcaseChangeA);
+        subcaseSelectB.addEventListener('change', onSubcaseChangeB);
+
+        function rebuildAllStructMeshes() {
+            for (let i = 0; i < 2; i++) rebuildStructMeshFor(i);
+        }
+        structFieldSelect.addEventListener('change', () => { structAutoScale(); rebuildAllStructMeshes(); });
+        structBarFieldSelect.addEventListener('change', () => { structAutoScale(); rebuildAllStructMeshes(); });
+        structColorMin.addEventListener('input', () => { chkStructAutoScale.checked = false; rebuildAllStructMeshes(); });
+        structColorMax.addEventListener('input', () => { chkStructAutoScale.checked = false; rebuildAllStructMeshes(); });
+        structBarColorMin.addEventListener('input', () => { chkStructAutoScale.checked = false; rebuildAllStructMeshes(); });
+        structBarColorMax.addEventListener('input', () => { chkStructAutoScale.checked = false; rebuildAllStructMeshes(); });
+        chkStructAutoScale.addEventListener('change', () => { if (chkStructAutoScale.checked) { structAutoScale(); rebuildAllStructMeshes(); } });
+        chkStructSymmetric.addEventListener('change', () => { if (chkStructAutoScale.checked) structAutoScale(); rebuildAllStructMeshes(); });
+        defScaleSlider.addEventListener('input', () => {
+            const fd = models[0].femData || models[1].femData;
+            if (fd && chkAutoDefScale.checked) {
+                const t = parseFloat(defScaleSlider.value) / 1000;
+                const maxDef = fd._autoDefScale || 1;
+                defScaleNumber.value = (t * maxDef * 2).toFixed(2);
+            } else {
+                defScaleNumber.value = defScaleSlider.value;
+            }
+            lblDefScale.textContent = defScaleNumber.value;
+            rebuildAllStructMeshes();
+        });
+        defScaleNumber.addEventListener('input', () => {
+            lblDefScale.textContent = defScaleNumber.value;
+            rebuildAllStructMeshes();
+        });
+        chkAutoDefScale.addEventListener('change', rebuildAllStructMeshes);
+        chkShowShells.addEventListener('change', rebuildAllStructMeshes);
+        chkShowBars.addEventListener('change', rebuildAllStructMeshes);
+        chkStructWireframe.addEventListener('change', rebuildAllStructMeshes);
+        chkShowGhost.addEventListener('change', rebuildAllStructMeshes);
+        chkStructBackface.addEventListener('change', () => {
+            for (let i = 0; i < 2; i++) {
+                if (modelMeshes[i].shell && modelMeshes[i].shell.material)
+                    modelMeshes[i].shell.material.backFaceCulling = !chkStructBackface.checked;
+            }
+        });
+        chkShowSPC.addEventListener('change', rebuildAllStructMeshes);
+        chkShowSprings.addEventListener('change', rebuildAllStructMeshes);
+        chkShowRBE2.addEventListener('change', rebuildAllStructMeshes);
+        chkShowRBE3.addEventListener('change', rebuildAllStructMeshes);
+        chkShowForces.addEventListener('change', rebuildAllStructMeshes);
+        chkShowMoments.addEventListener('change', rebuildAllStructMeshes);
+
+        // ---- Visualization tab events ----
+        const zOffsetSlider = document.getElementById('zOffsetSlider');
+        const lblZOffset = document.getElementById('lblZOffset');
+        const alphaSliderA = document.getElementById('alphaSliderA');
+        const alphaSliderB = document.getElementById('alphaSliderB');
+        const lblAlphaA = document.getElementById('lblAlphaA');
+        const lblAlphaB = document.getElementById('lblAlphaB');
+        const chkShowModelA = document.getElementById('chkShowModelA');
+        const chkShowModelB = document.getElementById('chkShowModelB');
+        const chkVisAxes = document.getElementById('chkVisAxes');
+        const chkVisLabels = document.getElementById('chkVisLabels');
+
+        zOffsetSlider.addEventListener('input', () => {
+            const val = parseInt(zOffsetSlider.value) / 1000;
+            lblZOffset.textContent = val.toFixed(2);
+            rebuildStructMeshFor(1);
+            buildNodesMeshFor(1);
+            updateCombinedFEMBounds();
+            updateModelLabels();
+        });
+
+        alphaSliderA.addEventListener('input', () => {
+            lblAlphaA.textContent = alphaSliderA.value + '%';
+            rebuildStructMeshFor(0);
+        });
+        alphaSliderB.addEventListener('input', () => {
+            lblAlphaB.textContent = alphaSliderB.value + '%';
+            rebuildStructMeshFor(1);
+        });
+
+        function setModelVisibility(idx, visible) {
+            const mm = modelMeshes[idx];
+            for (const key in mm) {
+                if (mm[key]) mm[key].setEnabled(visible);
+            }
+        }
+        chkShowModelA.addEventListener('change', () => setModelVisibility(0, chkShowModelA.checked));
+        chkShowModelB.addEventListener('change', () => setModelVisibility(1, chkShowModelB.checked));
+
+        chkVisAxes.addEventListener('change', () => {
+            chkShowAxes.checked = chkVisAxes.checked;
+            chkShowAxes.dispatchEvent(new Event('change'));
+        });
+
+        chkVisLabels.addEventListener('change', updateModelLabels);
+
+        // ---- Lighting controls ----
+        const sliderKeyLight = document.getElementById('sliderKeyLight');
+        const sliderFillLight = document.getElementById('sliderFillLight');
+        const sliderRimLight = document.getElementById('sliderRimLight');
+        const sliderAmbLight = document.getElementById('sliderAmbLight');
+        const sliderEmissive = document.getElementById('sliderEmissive');
+
+        function updateLightFromSliders() {
+            const k = parseFloat(sliderKeyLight.value) / 100;
+            const f = parseFloat(sliderFillLight.value) / 100;
+            const r = parseFloat(sliderRimLight.value) / 100;
+            const a = parseFloat(sliderAmbLight.value) / 100;
+            if (light1) light1.intensity = k;
+            if (light2) light2.intensity = f;
+            if (light3) light3.intensity = r;
+            if (lightAmb) lightAmb.intensity = a;
+            document.getElementById('lblKeyLight').textContent = sliderKeyLight.value + '%';
+            document.getElementById('lblFillLight').textContent = sliderFillLight.value + '%';
+            document.getElementById('lblRimLight').textContent = sliderRimLight.value + '%';
+            document.getElementById('lblAmbLight').textContent = sliderAmbLight.value + '%';
+        }
+        sliderKeyLight.addEventListener('input', updateLightFromSliders);
+        sliderFillLight.addEventListener('input', updateLightFromSliders);
+        sliderRimLight.addEventListener('input', updateLightFromSliders);
+        sliderAmbLight.addEventListener('input', updateLightFromSliders);
+
+        sliderEmissive.addEventListener('input', () => {
+            currentEmissive = parseFloat(sliderEmissive.value) / 100;
+            document.getElementById('lblEmissive').textContent = sliderEmissive.value + '%';
+            // Update all existing materials
+            for (let i = 0; i < 2; i++) {
+                const mm = modelMeshes[i];
+                if (mm.shell && mm.shell.material) mm.shell.material.emissiveColor = new BABYLON.Color3(currentEmissive, currentEmissive, currentEmissive);
+            }
+            if (surfaceMesh && surfaceMesh.material) surfaceMesh.material.emissiveColor = new BABYLON.Color3(currentEmissive, currentEmissive, currentEmissive);
+        });
+
+        function updateModelLabels() {
+            const labelA = document.getElementById('modelLabelA');
+            const labelB = document.getElementById('modelLabelB');
+            const show = chkVisLabels.checked;
+            if (!show || !scene || !scene.activeCamera) {
+                labelA.style.display = 'none';
+                labelB.style.display = 'none';
+                return;
+            }
+            for (let mi = 0; mi < 2; mi++) {
+                const lbl = mi === 0 ? labelA : labelB;
+                const md = models[mi];
+                if (!md.femData || !md.bounds) { lbl.style.display = 'none'; continue; }
+                const zOff = getModelZOffset(mi);
+                const center = new BABYLON.Vector3(md.bounds.center.x, md.bounds.center.y, md.bounds.center.z + zOff);
+                const projected = BABYLON.Vector3.Project(center,
+                    BABYLON.Matrix.Identity(),
+                    scene.getTransformMatrix(),
+                    scene.activeCamera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight()));
+                lbl.style.left = projected.x + 'px';
+                lbl.style.top = projected.y + 'px';
+                lbl.style.display = '';
+                lbl.textContent = md.filename || ('Model ' + (mi === 0 ? 'A' : 'B'));
+            }
+        }
+
+        // Panel collapse button
+        document.getElementById('btnCollapsePanel').addEventListener('click', collapsePanel);
+
+        // Global view controls
+        const chkShowAxes = document.getElementById('chkShowAxes');
+        const chkShowNodes = document.getElementById('chkShowNodes');
+        const btnCenterAll = document.getElementById('btnCenterAll');
+        const btnCenterAero = document.getElementById('btnCenterAero');
+        const btnCenterStruct = document.getElementById('btnCenterStruct');
+
+        chkShowAxes.addEventListener('change', () => {
+            if (axesViewer) {
+                if (chkShowAxes.checked) {
+                    axesViewer.scaleLines = bounds.size * 0.15;
+                } else {
+                    axesViewer.scaleLines = 0;
+                }
+            }
+        });
+
+        chkShowNodes.addEventListener('change', () => {
+            if (chkShowNodes.checked) {
+                for (let i = 0; i < 2; i++) buildNodesMeshFor(i);
+            } else {
+                for (let i = 0; i < 2; i++) {
+                    if (modelMeshes[i].nodes) { modelMeshes[i].nodes.dispose(); modelMeshes[i].nodes = null; }
+                }
+            }
+        });
+
+        function centerAndReset(targetBounds) {
+            if (!targetBounds || targetBounds.size <= 0) return;
+            setBoundsFrom(targetBounds);
+            scene.activeCamera.setTarget(new BABYLON.Vector3(targetBounds.center.x, targetBounds.center.y, targetBounds.center.z));
+            scene.activeCamera.radius = targetBounds.size * 1.2;
+            scene.activeCamera.alpha = Math.PI / 4;
+            scene.activeCamera.beta = Math.PI / 3;
+            scene.activeCamera.minZ = targetBounds.size * 0.001;
+            scene.activeCamera.maxZ = targetBounds.size * 10;
+            scene.activeCamera.panningSensibility = 2000 / (targetBounds.size || 1);
+            if (axesViewer) axesViewer.dispose();
+            axesViewer = new BABYLON.AxesViewer(scene, chkShowAxes.checked ? targetBounds.size * 0.15 : 0);
+            pivotMarker.isVisible = false;
+        }
+
+        btnCenterAll.addEventListener('click', () => {
+            updateAllBounds();
+            centerAndReset(bounds);
+        });
+        btnCenterAero.addEventListener('click', () => {
+            updateAeroBounds();
+            if (aeroBounds) centerAndReset(aeroBounds);
+        });
+        btnCenterStruct.addEventListener('click', () => {
+            updateFEMBounds();
+            if (combinedFEMBounds) centerAndReset(combinedFEMBounds);
+        });
+
+        function buildNodesMeshFor(idx) {
+            const mm = modelMeshes[idx];
+            if (mm.nodes) { mm.nodes.dispose(); mm.nodes = null; }
+            const fd = models[idx].femData;
+            if (!fd) return;
+
+            const defScale = parseFloat(defScaleNumber.value) || 0;
+            const sel = idx === 0 ? subcaseSelectA : subcaseSelectB;
+            const scIdx = parseInt(sel.value);
+            const sc = fd.subcases.find(s => s.sid === scIdx);
+            const usc = femUnitScale;
+            const zOff = getModelZOffset(idx);
+
+            const positions = [];
+            const colors = [];
+            for (let i = 0; i < fd.nNodes; i++) {
+                const n = fd.nodes[i];
+                let x = n.x, y = n.y, z = n.z;
+                if (sc && defScale !== 0) {
+                    x += sc.disp[i*6] * defScale;
+                    y += sc.disp[i*6+1] * defScale;
+                    z += sc.disp[i*6+2] * defScale;
+                }
+                positions.push(x * usc, y * usc, z * usc + zOff);
+                colors.push(1, 1, 1, 1);
+            }
+
+            mm.nodes = new BABYLON.Mesh("structNodes_" + idx, scene);
+            const vertexData = new BABYLON.VertexData();
+            vertexData.positions = positions;
+            vertexData.colors = colors;
+            vertexData.applyToMesh(mm.nodes);
+
+            const mat = new BABYLON.StandardMaterial("nodesMat_" + idx, scene);
+            mat.pointsCloud = true;
+            mat.pointSize = 4;
+            mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+            mat.disableLighting = true;
+            mm.nodes.material = mat;
+            mm.nodes.isPickable = false;
+        }
+
+        // =================================================================
+        //  3. COLOR FUNCTIONS
+        // =================================================================
+        function getRainbow(t) {
+            t = Math.max(0, Math.min(1, t));
+            const hue = (1.0 - t) * 240;
+            const c = 1.0;
+            const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+            let r = 0, g = 0, b = 0;
+            if (hue < 60)       { r = c; g = x; }
+            else if (hue < 120) { r = x; g = c; }
+            else if (hue < 180) { g = c; b = x; }
+            else if (hue < 240) { g = x; b = c; }
+            else if (hue < 300) { r = x; b = c; }
+            else                { r = c; b = x; }
+            return [r, g, b];
+        }
+
+        function getRainbowColor4(value, min, max) {
+            let t = (max > min) ? (value - min) / (max - min) : 0;
+            const [r, g, b] = getRainbow(t);
+            return new BABYLON.Color4(r, g, b, 1);
+        }
+
+        function drawColorBar(cMin, cMax, label) {
+            const bar = document.getElementById('colorBar');
+            bar.style.display = 'block';
+            const cvs = document.getElementById('colorBarCanvas');
+            const ctx = cvs.getContext('2d');
+            cvs.width = 400;
+            const w = cvs.width, h = cvs.height;
+            for (let i = 0; i < w; i++) {
+                const t = i / (w - 1);
+                const [r, g, b] = getRainbow(t);
+                ctx.fillStyle = `rgb(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0})`;
+                ctx.fillRect(i, 0, 1, h);
+            }
+            document.getElementById('colorBarTitle').textContent = label;
+            document.getElementById('cbLabelMin').textContent = cMin.toExponential(2);
+            document.getElementById('cbLabelMid').textContent = ((cMin + cMax) / 2).toExponential(2);
+            document.getElementById('cbLabelMax').textContent = cMax.toExponential(2);
+
+            // Show eigenvalue for current buckling mode
+            const evLabel = document.getElementById('eigenvalueLabel');
+            const fd = models[0].femData;
+            if (fd && fd.eigenvalues) {
+                const scIdx = parseInt(subcaseSelectA.value);
+                const modeIdx = fd.subcases.findIndex(s => s.sid === scIdx);
+                if (modeIdx >= 0 && modeIdx < fd.eigenvalues.length) {
+                    evLabel.textContent = 'Buckling Mode ' + (modeIdx+1) + '  |  \u03BB = ' + fd.eigenvalues[modeIdx].toPrecision(6);
+                    evLabel.style.display = 'block';
+                } else {
+                    evLabel.style.display = 'none';
+                }
+            } else {
+                evLabel.style.display = 'none';
+            }
+        }
+
+        // =================================================================
+        //  4A. BINARY FILE PARSER (.lbmp)
+        // =================================================================
+        document.getElementById('fileInputLBMP').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => parseLBMP(ev.target.result);
+            reader.readAsArrayBuffer(file);
+        });
+
+        function parseLBMP(buffer) {
+            const view = new DataView(buffer);
+            let off = 0;
+
+            const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+            if (magic !== 'LBMP') {
+                document.getElementById('stats').textContent = 'Error: Not a valid .lbmp file';
+                return;
+            }
+            off = 4;
+
+            const version = view.getUint32(off, true); off += 4;
+            const n_tri = view.getUint32(off, true); off += 4;
+            const n_objects = view.getUint32(off, true); off += 4;
+
+            const objectNames = [];
+            for (let i = 0; i < n_objects; i++) {
+                const nameLen = view.getUint32(off, true); off += 4;
+                let name = '';
+                for (let j = 0; j < nameLen; j++) name += String.fromCharCode(view.getUint8(off + j));
+                off += nameLen;
+                objectNames.push(name);
+            }
+
+            function readFloat32Array(view, offset, count) {
+                const arr = new Float32Array(count);
+                for (let i = 0; i < count; i++) { arr[i] = view.getFloat32(offset + i * 4, true); }
+                return arr;
+            }
+            function readInt32Array(view, offset, count) {
+                const arr = new Int32Array(count);
+                for (let i = 0; i < count; i++) { arr[i] = view.getInt32(offset + i * 4, true); }
+                return arr;
+            }
+
+            const vertices  = readFloat32Array(view, off, n_tri * 9); off += n_tri * 9 * 4;
+            const normals   = readFloat32Array(view, off, n_tri * 3); off += n_tri * 3 * 4;
+            const pressure  = readFloat32Array(view, off, n_tri);     off += n_tri * 4;
+            const shear     = readFloat32Array(view, off, n_tri);     off += n_tri * 4;
+            const cp        = readFloat32Array(view, off, n_tri);     off += n_tri * 4;
+            const objectIds = readInt32Array(view, off, n_tri);       off += n_tri * 4;
+
+            meshData = { n_tri, n_objects, objectNames, vertices, normals, pressure, shear, cp, objectIds, version };
+
+            for (const n of objectNames) allObjectNames.add(n);
+            activeObjects = new Set(allObjectNames);
+
+            updateAeroBounds();
+            setBoundsFrom(aeroBounds);
+            buildObjectFilterUI();
+            frameToBounds(aeroBounds);
+            surfAutoScale();
+            rebuildSurface();
+            updateStats();
+        }
+
+        // =================================================================
+        //  4B. CSV PARSER
+        // =================================================================
+        function parseForceCSV(text) {
+            const vectors = [];
+            const objectNames = new Set();
+            const rows = text.split(/\r?\n/);
+
+            const header = rows[0] ? rows[0].trim().toLowerCase() : "";
+            const hasObjectName = header.includes("object_name");
+
+            let minMag = Infinity, maxMag = -Infinity;
+
+            for (let i = 1; i < rows.length; i++) {
+                const r = rows[i].trim();
+                if (!r) continue;
+                const c = r.split(',');
+
+                let objName, cx, cy, cz, Fx, Fy, Fz;
+                if (hasObjectName) {
+                    if (c.length < 8) continue;
+                    objName = c[1].trim();
+                    cx = parseFloat(c[2]); cy = parseFloat(c[3]); cz = parseFloat(c[4]);
+                    Fx = parseFloat(c[5]); Fy = parseFloat(c[6]); Fz = parseFloat(c[7]);
+                } else {
+                    if (c.length < 7) continue;
+                    objName = "default";
+                    cx = parseFloat(c[1]); cy = parseFloat(c[2]); cz = parseFloat(c[3]);
+                    Fx = parseFloat(c[4]); Fy = parseFloat(c[5]); Fz = parseFloat(c[6]);
+                }
+                if (isNaN(cx)) continue;
+
+                objectNames.add(objName);
+
+                const pos = new BABYLON.Vector3(cx, cy, cz);
+                const vec = new BABYLON.Vector3(Fx, Fy, Fz);
+                const mag = vec.length();
+                if (mag < minMag) minMag = mag;
+                if (mag > maxMag) maxMag = mag;
+                const dir = mag > 0 ? vec.scale(1 / mag) : BABYLON.Vector3.Zero();
+                vectors.push({ pos, dir, mag, obj: objName });
+            }
+
+            return { vectors, objectNames, minMag, maxMag };
+        }
+
+        // Net forces CSV input
+        document.getElementById('fileInputCSV').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const result = parseForceCSV(ev.target.result);
+                rawNetVectors = result.vectors;
+                csvNetObjectNames = result.objectNames;
+
+                if (rawNetVectors.length === 0) {
+                    document.getElementById('stats').textContent = "Error: No vector data in net forces CSV.";
+                    return;
+                }
+
+                autoUpdateVecColorRange();
+
+                for (const n of csvNetObjectNames) allObjectNames.add(n);
+                activeObjects = new Set(allObjectNames);
+
+                updateBounds();
+                buildObjectFilterUI();
+                frameCamera();
+                buildAllPoints();
+                rebuildAllVectors();
+                updateStats();
+            };
+            reader.readAsText(file);
+        });
+
+        // Nodal loads CSV input
+        document.getElementById('fileInputNodal').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const result = parseForceCSV(ev.target.result);
+                rawNodalVectors = result.vectors;
+                csvNodalObjectNames = result.objectNames;
+
+                if (rawNodalVectors.length === 0) {
+                    document.getElementById('stats').textContent = "Error: No vector data in nodal loads CSV.";
+                    return;
+                }
+
+                autoUpdateVecColorRange();
+
+                for (const n of csvNodalObjectNames) allObjectNames.add(n);
+                activeObjects = new Set(allObjectNames);
+
+                updateBounds();
+                buildObjectFilterUI();
+                frameCamera();
+                buildAllPoints();
+                rebuildAllVectors();
+                updateStats();
+            };
+            reader.readAsText(file);
+        });
+
+        function autoUpdateVecColorRange() {
+            let minMag = Infinity, maxMag = -Infinity;
+            for (const v of rawNetVectors) {
+                if (v.mag < minMag) minMag = v.mag;
+                if (v.mag > maxMag) maxMag = v.mag;
+            }
+            for (const v of rawNodalVectors) {
+                if (v.mag < minMag) minMag = v.mag;
+                if (v.mag > maxMag) maxMag = v.mag;
+            }
+            if (minMag !== Infinity) {
+                vecColorMin.value = minMag.toFixed(2);
+                vecColorMax.value = maxMag.toFixed(2);
+            }
+        }
+
+        // =================================================================
+        //  4C. JFEM BINARY PARSER
+        // =================================================================
+        document.getElementById('fileInputJFEM_A').addEventListener('change', (e) => {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => loadJFEMForModel(ev.target.result, 0, file.name);
+            reader.readAsArrayBuffer(file);
+        });
+        document.getElementById('fileInputJFEM_B').addEventListener('change', (e) => {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => loadJFEMForModel(ev.target.result, 1, file.name);
+            reader.readAsArrayBuffer(file);
+        });
+
+        function parseJFEM(buffer) {
+            const view = new DataView(buffer);
+            let off = 0;
+
+            const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+            if (magic !== 'JFEM') {
+                document.getElementById('stats').textContent = 'Error: Not a valid .jfem file';
+                return;
+            }
+            off = 4;
+
+            const version = view.getUint32(off, true); off += 4;
+            const nNodes = view.getUint32(off, true); off += 4;
+            const nQuads = view.getUint32(off, true); off += 4;
+            const nTrias = view.getUint32(off, true); off += 4;
+            const nBars = view.getUint32(off, true); off += 4;
+            const nRods = view.getUint32(off, true); off += 4;
+            const nSubcases = view.getUint32(off, true); off += 4;
+            // v3 extended header
+            const nCelas = version >= 3 ? view.getUint32(off, true) : 0; if (version >= 3) off += 4;
+            const nRBE2  = version >= 3 ? view.getUint32(off, true) : 0; if (version >= 3) off += 4;
+            const nRBE3  = version >= 3 ? view.getUint32(off, true) : 0; if (version >= 3) off += 4;
+
+            // Node table: nid(i32), x(f32), y(f32), z(f32)
+            const nodes = [];
+            const nidToIdx = {};
+            for (let i = 0; i < nNodes; i++) {
+                const nid = view.getInt32(off, true); off += 4;
+                const x = view.getFloat32(off, true); off += 4;
+                const y = view.getFloat32(off, true); off += 4;
+                const z = view.getFloat32(off, true); off += 4;
+                nodes.push({ nid, x, y, z });
+                nidToIdx[nid] = i;
+            }
+
+            // CQUAD4 table: eid(i32), pid(i32), g1-g4(i32) [, thickness(f32) if v>=2]
+            const quads = [];
+            for (let i = 0; i < nQuads; i++) {
+                const eid = view.getInt32(off, true); off += 4;
+                const pid = view.getInt32(off, true); off += 4;
+                const g1 = view.getInt32(off, true); off += 4;
+                const g2 = view.getInt32(off, true); off += 4;
+                const g3 = view.getInt32(off, true); off += 4;
+                const g4 = view.getInt32(off, true); off += 4;
+                const thickness = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
+                quads.push({ eid, pid, nodes: [g1, g2, g3, g4], thickness });
+            }
+
+            // CTRIA3 table: eid(i32), pid(i32), g1-g3(i32) [, thickness(f32) if v>=2]
+            const trias = [];
+            for (let i = 0; i < nTrias; i++) {
+                const eid = view.getInt32(off, true); off += 4;
+                const pid = view.getInt32(off, true); off += 4;
+                const g1 = view.getInt32(off, true); off += 4;
+                const g2 = view.getInt32(off, true); off += 4;
+                const g3 = view.getInt32(off, true); off += 4;
+                const thickness = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
+                trias.push({ eid, pid, nodes: [g1, g2, g3], thickness });
+            }
+
+            // CBAR table: eid(i32), pid(i32), ga(i32), gb(i32) [, area(f32) if v>=2]
+            const bars = [];
+            for (let i = 0; i < nBars; i++) {
+                const eid = view.getInt32(off, true); off += 4;
+                const pid = view.getInt32(off, true); off += 4;
+                const ga = view.getInt32(off, true); off += 4;
+                const gb = view.getInt32(off, true); off += 4;
+                const area = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
+                bars.push({ eid, pid, ga, gb, area });
+            }
+
+            // CROD table: eid(i32), pid(i32), ga(i32), gb(i32) [, area(f32) if v>=2]
+            const rods = [];
+            for (let i = 0; i < nRods; i++) {
+                const eid = view.getInt32(off, true); off += 4;
+                const pid = view.getInt32(off, true); off += 4;
+                const ga = view.getInt32(off, true); off += 4;
+                const gb = view.getInt32(off, true); off += 4;
+                const area = version >= 2 ? view.getFloat32(off, true) : 0; if (version >= 2) off += 4;
+                rods.push({ eid, pid, ga, gb, area });
+            }
+
+            // v3: CELAS table
+            const celas = [];
+            if (version >= 3) {
+                for (let i = 0; i < nCelas; i++) {
+                    const eid = view.getInt32(off, true); off += 4;
+                    const g1 = view.getInt32(off, true); off += 4;
+                    const c1 = view.getInt32(off, true); off += 4;
+                    const g2 = view.getInt32(off, true); off += 4;
+                    const c2 = view.getInt32(off, true); off += 4;
+                    const stiffness = view.getFloat32(off, true); off += 4;
+                    off += 4; // pad
+                    celas.push({ eid, g1, c1, g2, c2, stiffness });
+                }
+            }
+
+            // v3: RBE2 table (variable-length)
+            const rbe2s = [];
+            if (version >= 3) {
+                for (let i = 0; i < nRBE2; i++) {
+                    const eid = view.getInt32(off, true); off += 4;
+                    const gn = view.getInt32(off, true); off += 4;
+                    const cm = view.getInt32(off, true); off += 4;
+                    const nSlaves = view.getUint32(off, true); off += 4;
+                    const slaves = [];
+                    for (let j = 0; j < nSlaves; j++) {
+                        slaves.push(view.getInt32(off, true)); off += 4;
+                    }
+                    rbe2s.push({ eid, gn, cm, slaves });
+                }
+            }
+
+            // v3: RBE3 table (variable-length)
+            const rbe3s = [];
+            if (version >= 3) {
+                for (let i = 0; i < nRBE3; i++) {
+                    const eid = view.getInt32(off, true); off += 4;
+                    const refgrid = view.getInt32(off, true); off += 4;
+                    const refc = view.getInt32(off, true); off += 4;
+                    const nDep = view.getUint32(off, true); off += 4;
+                    const deps = [];
+                    for (let j = 0; j < nDep; j++) {
+                        deps.push(view.getInt32(off, true)); off += 4;
+                    }
+                    rbe3s.push({ eid, refgrid, refc, deps });
+                }
+            }
+
+            // Subcases
+            const subcases = [];
+            for (let s = 0; s < nSubcases; s++) {
+                const sid = view.getUint32(off, true); off += 4;
+
+                // Node displacements: 6 float32 per node
+                const disp = new Float32Array(nNodes * 6);
+                for (let i = 0; i < nNodes * 6; i++) {
+                    disp[i] = view.getFloat32(off, true); off += 4;
+                }
+
+                // Shell results: 7 float32 per shell element (quads then trias)
+                const nShells = nQuads + nTrias;
+                const shellResults = new Float32Array(nShells * 7);
+                for (let i = 0; i < nShells * 7; i++) {
+                    shellResults[i] = view.getFloat32(off, true); off += 4;
+                }
+
+                // Bar results: 7 float32 per bar
+                const barResults = new Float32Array(nBars * 7);
+                for (let i = 0; i < nBars * 7; i++) {
+                    barResults[i] = view.getFloat32(off, true); off += 4;
+                }
+
+                // Rod results: 2 float32 per rod
+                const rodResults = new Float32Array(nRods * 2);
+                for (let i = 0; i < nRods * 2; i++) {
+                    rodResults[i] = view.getFloat32(off, true); off += 4;
+                }
+
+                // v3: SPC data
+                let spc = [];
+                let forces = [];
+                let moments = [];
+                if (version >= 3) {
+                    const nSPC = view.getUint32(off, true); off += 4;
+                    for (let i = 0; i < nSPC; i++) {
+                        const nid = view.getInt32(off, true); off += 4;
+                        const dofMask = view.getUint32(off, true); off += 4;
+                        spc.push({ nid, dofMask });
+                    }
+                    const nForces = view.getUint32(off, true); off += 4;
+                    for (let i = 0; i < nForces; i++) {
+                        const nid = view.getInt32(off, true); off += 4;
+                        const fx = view.getFloat32(off, true); off += 4;
+                        const fy = view.getFloat32(off, true); off += 4;
+                        const fz = view.getFloat32(off, true); off += 4;
+                        forces.push({ nid, fx, fy, fz });
+                    }
+                    const nMoments = view.getUint32(off, true); off += 4;
+                    for (let i = 0; i < nMoments; i++) {
+                        const nid = view.getInt32(off, true); off += 4;
+                        const mx = view.getFloat32(off, true); off += 4;
+                        const my = view.getFloat32(off, true); off += 4;
+                        const mz = view.getFloat32(off, true); off += 4;
+                        moments.push({ nid, mx, my, mz });
+                    }
+                }
+
+                subcases.push({ sid, disp, shellResults, barResults, rodResults, spc, forces, moments });
+            }
+
+            // Check for eigenvalue footer ('EVAL' marker)
+            let eigenvalues = null;
+            if (off + 8 <= buffer.byteLength) {
+                const m0 = view.getUint8(off), m1 = view.getUint8(off+1), m2 = view.getUint8(off+2), m3 = view.getUint8(off+3);
+                if (m0 === 69 && m1 === 86 && m2 === 65 && m3 === 76) { // 'EVAL'
+                    off += 4;
+                    const nEV = view.getUint32(off, true); off += 4;
+                    eigenvalues = [];
+                    for (let i = 0; i < nEV; i++) {
+                        eigenvalues.push(view.getFloat64(off, true)); off += 8;
+                    }
+                    console.log('JFEM: Eigenvalues loaded:', eigenvalues);
+                }
+            }
+
+            const result = { version, nNodes, nQuads, nTrias, nBars, nRods, nSubcases,
+                        nCelas, nRBE2, nRBE3,
+                        nodes, nidToIdx, quads, trias, bars, rods,
+                        celas, rbe2s, rbe3s, subcases, eigenvalues };
+
+            // Compute auto deformation scale
+            if (subcases.length > 0) {
+                let maxDisp = 0;
+                const d = subcases[0].disp;
+                for (let i = 0; i < nNodes; i++) {
+                    const dx = d[i*6], dy = d[i*6+1], dz = d[i*6+2];
+                    const mag = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                    if (mag > maxDisp) maxDisp = mag;
+                }
+                let modelSize = 0;
+                let mnx=Infinity, mny=Infinity, mnz=Infinity, mxx=-Infinity, mxy=-Infinity, mxz=-Infinity;
+                for (const n of nodes) {
+                    if (n.x<mnx) mnx=n.x; if (n.x>mxx) mxx=n.x;
+                    if (n.y<mny) mny=n.y; if (n.y>mxy) mxy=n.y;
+                    if (n.z<mnz) mnz=n.z; if (n.z>mxz) mxz=n.z;
+                }
+                modelSize = Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2);
+                result._autoDefScale = maxDisp > 0 ? (modelSize * 0.1) / maxDisp : 1;
+            }
+
+            // Validate node references
+            let missingNodes = 0;
+            const missingSet = new Set();
+            for (const q of quads) { for (const nid of q.nodes) { if (nidToIdx[nid] === undefined) { missingNodes++; missingSet.add(nid); } } }
+            for (const t of trias) { for (const nid of t.nodes) { if (nidToIdx[nid] === undefined) { missingNodes++; missingSet.add(nid); } } }
+            for (const b of bars) { if (nidToIdx[b.ga] === undefined) { missingNodes++; missingSet.add(b.ga); } if (nidToIdx[b.gb] === undefined) { missingNodes++; missingSet.add(b.gb); } }
+            for (const r of rods) { if (nidToIdx[r.ga] === undefined) { missingNodes++; missingSet.add(r.ga); } if (nidToIdx[r.gb] === undefined) { missingNodes++; missingSet.add(r.gb); } }
+            if (missingNodes > 0) console.warn(`JFEM: ${missingNodes} element node refs missing! IDs: ${[...missingSet].slice(0,20).join(', ')}`);
+            else console.log(`JFEM v${version}: All node refs OK (${nNodes}n ${nQuads}Q+${nTrias}T+${nBars}B+${nRods}R+${nCelas}S+${nRBE2}RBE2+${nRBE3}RBE3)`);
+
+            return result;
+        }
+
+        function loadJFEMForModel(buffer, idx, filename) {
+            const data = parseJFEM(buffer);
+            if (!data) return;
+            data._filename = filename;
+            models[idx].femData = data;
+            models[idx].filename = filename;
+
+            // Update label
+            document.getElementById(idx === 0 ? 'labelA' : 'labelB').textContent = filename;
+
+            // Populate subcase selector
+            const sel = idx === 0 ? subcaseSelectA : subcaseSelectB;
+            const handler = idx === 0 ? onSubcaseChangeA : onSubcaseChangeB;
+            sel.removeEventListener('change', handler);
+            sel.innerHTML = '';
+            for (let si = 0; si < data.subcases.length; si++) {
+                const sc = data.subcases[si];
+                const opt = document.createElement('option');
+                opt.value = sc.sid;
+                if (data.eigenvalues && si < data.eigenvalues.length) {
+                    const ev = data.eigenvalues[si];
+                    opt.textContent = 'Mode ' + sc.sid + '  \u03BB=' + ev.toPrecision(5);
+                } else {
+                    opt.textContent = 'Subcase ' + sc.sid;
+                }
+                sel.appendChild(opt);
+            }
+            sel.addEventListener('change', handler);
+
+            // Deformation auto-scale (use whichever model has larger scale)
+            if (data._autoDefScale) {
+                defScaleSlider.value = 250;
+                const defVal = (0.25 * data._autoDefScale * 2).toFixed(2);
+                defScaleNumber.value = defVal;
+                lblDefScale.textContent = defVal;
+            }
+
+            // Compute per-model bounds
+            const s = femUnitScale;
+            const pts = data.nodes.map(n => ({x:n.x*s, y:n.y*s, z:n.z*s}));
+            models[idx].bounds = computeBoundsFromPoints(pts);
+
+            updateFEMBounds();
+            if (combinedFEMBounds) { setBoundsFrom(combinedFEMBounds); frameToBounds(combinedFEMBounds); }
+            structAutoScale();
+            rebuildStructMeshFor(idx);
+            updateStats();
+        }
+
+        // =================================================================
+        //  5. BOUNDS, CAMERA, AXES
+        // =================================================================
+        // Per-source bounds computation
+        let aeroBounds = null;   // { min, max, center, size }
+        let femBounds  = null;
+
+        function computeBoundsFromPoints(points) {
+            // points = array of {x,y,z}
+            if (!points.length) return null;
+            let mnx=Infinity, mny=Infinity, mnz=Infinity, mxx=-Infinity, mxy=-Infinity, mxz=-Infinity;
+            for (const p of points) {
+                if (p.x<mnx) mnx=p.x; if (p.x>mxx) mxx=p.x;
+                if (p.y<mny) mny=p.y; if (p.y>mxy) mxy=p.y;
+                if (p.z<mnz) mnz=p.z; if (p.z>mxz) mxz=p.z;
+            }
+            const size = Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2);
+            return { min:{x:mnx,y:mny,z:mnz}, max:{x:mxx,y:mxy,z:mxz},
+                     center:{x:(mnx+mxx)/2, y:(mny+mxy)/2, z:(mnz+mxz)/2}, size };
+        }
+
+        function updateAeroBounds() {
+            const pts = [];
+            if (meshData) {
+                for (let i = 0; i < meshData.n_tri; i++) {
+                    for (let v = 0; v < 3; v++) {
+                        const base = i * 9 + v * 3;
+                        pts.push({x: meshData.vertices[base], y: meshData.vertices[base+1], z: meshData.vertices[base+2]});
+                    }
+                }
+            }
+            for (const v of rawNetVectors)   pts.push({x:v.pos.x, y:v.pos.y, z:v.pos.z});
+            for (const v of rawNodalVectors) pts.push({x:v.pos.x, y:v.pos.y, z:v.pos.z});
+            aeroBounds = pts.length ? computeBoundsFromPoints(pts) : null;
+        }
+
+        function updateCombinedFEMBounds() {
+            const sources = [];
+            for (let i = 0; i < 2; i++) {
+                if (!models[i].bounds) continue;
+                const b = models[i].bounds;
+                const zOff = getModelZOffset(i);
+                sources.push({
+                    min: {x:b.min.x, y:b.min.y, z:b.min.z + zOff},
+                    max: {x:b.max.x, y:b.max.y, z:b.max.z + zOff}
+                });
+            }
+            if (sources.length === 0) { combinedFEMBounds = null; femBounds = null; return; }
+            let mnx=Infinity, mny=Infinity, mnz=Infinity, mxx=-Infinity, mxy=-Infinity, mxz=-Infinity;
+            for (const s of sources) {
+                if (s.min.x<mnx) mnx=s.min.x; if (s.max.x>mxx) mxx=s.max.x;
+                if (s.min.y<mny) mny=s.min.y; if (s.max.y>mxy) mxy=s.max.y;
+                if (s.min.z<mnz) mnz=s.min.z; if (s.max.z>mxz) mxz=s.max.z;
+            }
+            const size = Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2);
+            combinedFEMBounds = { min:{x:mnx,y:mny,z:mnz}, max:{x:mxx,y:mxy,z:mxz},
+                center:{x:(mnx+mxx)/2, y:(mny+mxy)/2, z:(mnz+mxz)/2}, size };
+            femBounds = combinedFEMBounds;
+        }
+
+        function updateFEMBounds() {
+            const s = femUnitScale;
+            for (let i = 0; i < 2; i++) {
+                if (!models[i].femData) { models[i].bounds = null; continue; }
+                const pts = models[i].femData.nodes.map(n => ({x:n.x*s, y:n.y*s, z:n.z*s}));
+                models[i].bounds = computeBoundsFromPoints(pts);
+            }
+            updateCombinedFEMBounds();
+        }
+
+        function updateAllBounds() {
+            updateAeroBounds();
+            updateFEMBounds();
+            // Merge whichever are available
+            const sources = [aeroBounds, combinedFEMBounds].filter(b => b !== null);
+            if (sources.length === 0) return;
+            if (sources.length === 1) {
+                Object.assign(bounds, sources[0]);
+                return;
+            }
+            // Merge multiple
+            let mnx=Infinity, mny=Infinity, mnz=Infinity, mxx=-Infinity, mxy=-Infinity, mxz=-Infinity;
+            for (const b of sources) {
+                if (b.min.x<mnx) mnx=b.min.x; if (b.max.x>mxx) mxx=b.max.x;
+                if (b.min.y<mny) mny=b.min.y; if (b.max.y>mxy) mxy=b.max.y;
+                if (b.min.z<mnz) mnz=b.min.z; if (b.max.z>mxz) mxz=b.max.z;
+            }
+            bounds.min = {x:mnx,y:mny,z:mnz};
+            bounds.max = {x:mxx,y:mxy,z:mxz};
+            bounds.center = {x:(mnx+mxx)/2, y:(mny+mxy)/2, z:(mnz+mxz)/2};
+            bounds.size = Math.sqrt((mxx-mnx)**2 + (mxy-mny)**2 + (mxz-mnz)**2);
+        }
+
+        // Legacy aliases
+        function updateBounds() { updateAeroBounds(); setBoundsFrom(aeroBounds); }
+        function updateBoundsFromFEM() { updateFEMBounds(); setBoundsFrom(femBounds); }
+
+        function setBoundsFrom(src) {
+            if (!src) return;
+            bounds.min = {...src.min};
+            bounds.max = {...src.max};
+            bounds.center = {...src.center};
+            bounds.size = src.size;
+        }
+
+        function frameToBounds(b) {
+            if (!b || b.size <= 0) return;
+            const center = new BABYLON.Vector3(b.center.x, b.center.y, b.center.z);
+            scene.activeCamera.setTarget(center);
+            scene.activeCamera.radius = b.size * 1.2;
+            scene.activeCamera.minZ = b.size * 0.001;
+            scene.activeCamera.maxZ = b.size * 10;
+            scene.activeCamera.panningSensibility = 2000 / (b.size || 1);
+            if (axesViewer) axesViewer.dispose();
+            axesViewer = new BABYLON.AxesViewer(scene, chkShowAxes.checked ? b.size * 0.15 : 0);
+        }
+
+        function frameCamera() {
+            frameToBounds(bounds);
+        }
+
+        // =================================================================
+        //  6. OBJECT FILTER
+        // =================================================================
+        function buildObjectFilterUI() {
+            objectListDiv.innerHTML = '';
+
+            if (allObjectNames.size <= 1) {
+                objectFilterContainer.classList.remove('visible');
+                return;
+            }
+            objectFilterContainer.classList.add('visible');
+
+            const counts = {};
+            if (meshData) {
+                for (let i = 0; i < meshData.n_tri; i++) {
+                    const name = meshData.objectNames[meshData.objectIds[i] - 1];
+                    counts[name] = (counts[name] || 0) + 1;
+                }
+            }
+
+            const sorted = Array.from(allObjectNames).sort();
+            for (const name of sorted) {
+                const count = counts[name] || 0;
+                const item = document.createElement('div');
+                item.className = 'object-item';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.id = 'obj_' + name;
+                cb.checked = activeObjects.has(name);
+                cb.addEventListener('change', () => {
+                    if (cb.checked) activeObjects.add(name); else activeObjects.delete(name);
+                    onObjectFilterChanged();
+                });
+
+                const lbl = document.createElement('label');
+                lbl.htmlFor = cb.id;
+                lbl.textContent = name;
+
+                const cs = document.createElement('span');
+                cs.className = 'obj-count';
+                cs.textContent = count > 0 ? `(${count.toLocaleString()})` : '';
+
+                item.appendChild(cb);
+                item.appendChild(lbl);
+                item.appendChild(cs);
+                objectListDiv.appendChild(item);
+            }
+        }
+
+        function updateObjectCheckboxes() {
+            const cbs = objectListDiv.querySelectorAll('input[type=checkbox]');
+            for (const cb of cbs) cb.checked = activeObjects.has(cb.id.replace('obj_', ''));
+        }
+
+        // =================================================================
+        //  7. SURFACE MESH BUILDER (AERO)
+        // =================================================================
+        function getActiveField() {
+            if (!meshData) return null;
+            const f = fieldSelect.value;
+            if (f === 'pressure') return meshData.pressure;
+            if (f === 'cp') return meshData.cp;
+            if (f === 'shear') return meshData.shear;
+            return meshData.pressure;
+        }
+
+        function getFieldLabel() {
+            const f = fieldSelect.value;
+            if (f === 'pressure') return 'Pressure (Pa)';
+            if (f === 'cp') return 'Cp';
+            if (f === 'shear') return 'Shear Stress (Pa)';
+            return 'Pressure (Pa)';
+        }
+
+        function surfAutoScale() {
+            if (!meshData || !chkAutoScale.checked) return;
+            const fieldArr = getActiveField();
+            let mn = Infinity, mx = -Infinity;
+            for (let i = 0; i < meshData.n_tri; i++) {
+                const objName = meshData.objectNames[meshData.objectIds[i] - 1];
+                if (!activeObjects.has(objName)) continue;
+                const val = fieldArr[i];
+                if (val < mn) mn = val;
+                if (val > mx) mx = val;
+            }
+            if (mn === Infinity) { mn = 0; mx = 1; }
+            if (chkSymmetric.checked) {
+                const absMax = Math.max(Math.abs(mn), Math.abs(mx));
+                mn = -absMax; mx = absMax;
+            }
+            surfColorMin.value = mn.toExponential(3);
+            surfColorMax.value = mx.toExponential(3);
+        }
+
+        function rebuildSurface() {
+            if (surfaceMesh) { surfaceMesh.dispose(); surfaceMesh = null; }
+            if (wireframeMesh) { wireframeMesh.dispose(); wireframeMesh = null; }
+            if (!meshData) return;
+
+            const showSurf = chkShowSurface.checked;
+
+            const fieldArr = getActiveField();
+            const cMin = parseFloat(surfColorMin.value);
+            const cMax = parseFloat(surfColorMax.value);
+            const cRange = cMax - cMin;
+
+            drawColorBar(cMin, cMax, getFieldLabel());
+
+            if (!showSurf) return;
+
+            let activeTris = 0;
+            for (let i = 0; i < meshData.n_tri; i++) {
+                const objName = meshData.objectNames[meshData.objectIds[i] - 1];
+                if (activeObjects.has(objName)) activeTris++;
+            }
+            if (activeTris === 0) return;
+
+            const positions = new Float32Array(activeTris * 9);
+            const indices = new Uint32Array(activeTris * 3);
+            const colorsRGBA = new Float32Array(activeTris * 12);
+            const meshNormals = new Float32Array(activeTris * 9);
+
+            let triIdx = 0;
+            for (let i = 0; i < meshData.n_tri; i++) {
+                const objName = meshData.objectNames[meshData.objectIds[i] - 1];
+                if (!activeObjects.has(objName)) continue;
+
+                const vBase = i * 9;
+                const nBase = i * 3;
+                const pBase = triIdx * 9;
+                const iBase = triIdx * 3;
+                const cBase = triIdx * 12;
+
+                for (let k = 0; k < 9; k++) positions[pBase + k] = meshData.vertices[vBase + k];
+
+                const vertOff = triIdx * 3;
+                indices[iBase] = vertOff;
+                indices[iBase + 1] = vertOff + 1;
+                indices[iBase + 2] = vertOff + 2;
+
+                const nx = meshData.normals[nBase];
+                const ny = meshData.normals[nBase + 1];
+                const nz = meshData.normals[nBase + 2];
+                for (let v = 0; v < 3; v++) {
+                    meshNormals[pBase + v * 3] = nx;
+                    meshNormals[pBase + v * 3 + 1] = ny;
+                    meshNormals[pBase + v * 3 + 2] = nz;
+                }
+
+                const val = fieldArr[i];
+                const t = cRange > 0 ? (val - cMin) / cRange : 0.5;
+                const [r, g, b] = getRainbow(t);
+                for (let v = 0; v < 3; v++) {
+                    colorsRGBA[cBase + v * 4] = r;
+                    colorsRGBA[cBase + v * 4 + 1] = g;
+                    colorsRGBA[cBase + v * 4 + 2] = b;
+                    colorsRGBA[cBase + v * 4 + 3] = 1.0;
+                }
+                triIdx++;
+            }
+
+            surfaceMesh = new BABYLON.Mesh("surface", scene);
+            const vertexData = new BABYLON.VertexData();
+            vertexData.positions = positions;
+            vertexData.indices = indices;
+            vertexData.normals = meshNormals;
+            vertexData.colors = colorsRGBA;
+            vertexData.applyToMesh(surfaceMesh);
+
+            const mat = new BABYLON.StandardMaterial("surfMat", scene);
+            mat.backFaceCulling = !chkBackface.checked;
+            mat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+            mat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+            mat.specularPower = 48;
+            const em = currentEmissive || 0.08;
+            mat.emissiveColor = new BABYLON.Color3(em, em, em);
+            surfaceMesh.material = mat;
+            surfaceMesh.isPickable = true;
+
+            if (chkWireframe.checked) {
+                wireframeMesh = surfaceMesh.clone("wireframe");
+                const wMat = new BABYLON.StandardMaterial("wireMat", scene);
+                wMat.wireframe = true;
+                wMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                wMat.disableLighting = true;
+                wMat.backFaceCulling = false;
+                wireframeMesh.material = wMat;
+                wireframeMesh.isPickable = false;
+            }
+        }
+
+        function updateWireframe() {
+            if (wireframeMesh) { wireframeMesh.dispose(); wireframeMesh = null; }
+            if (chkWireframe.checked && surfaceMesh) {
+                wireframeMesh = surfaceMesh.clone("wireframe");
+                const wMat = new BABYLON.StandardMaterial("wireMat", scene);
+                wMat.wireframe = true;
+                wMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                wMat.disableLighting = true;
+                wMat.backFaceCulling = false;
+                wireframeMesh.material = wMat;
+                wireframeMesh.isPickable = false;
+            }
+        }
+
+        function updateBackface() {
+            if (surfaceMesh && surfaceMesh.material)
+                surfaceMesh.material.backFaceCulling = !chkBackface.checked;
+        }
+
+        function updateLighting() {
+            const intensity = parseFloat(lightSlider.value) / 100;
+            // Sync the Vis tab sliders with the aero tab global slider
+            sliderKeyLight.value = Math.round(intensity * 100);
+            sliderFillLight.value = Math.round(intensity * 40);
+            sliderRimLight.value = Math.round(intensity * 25);
+            sliderAmbLight.value = Math.round(intensity * 15);
+            updateLightFromSliders();
+        }
+
+        // =================================================================
+        //  8. FORCE VECTOR BUILDER (AERO)
+        // =================================================================
+        const NET_ORIGIN_COLOR = new BABYLON.Color4(0.2, 1.0, 0.5, 1);
+        const NODAL_ORIGIN_COLOR = new BABYLON.Color4(1.0, 0.67, 0.2, 1);
+        const NET_POINT_COLOR = new BABYLON.Color3(0.2, 1.0, 0.5);
+        const NODAL_POINT_COLOR = new BABYLON.Color3(1.0, 0.67, 0.2);
+
+        function buildStaticPoints(vectors, which) {
+            if (which === 'net') { if (netPointsMesh) { netPointsMesh.dispose(); netPointsMesh = null; } }
+            else { if (nodalPointsMesh) { nodalPointsMesh.dispose(); nodalPointsMesh = null; } }
+
+            const showThis = which === 'net' ? chkShowNetForces.checked : chkShowNodalLoads.checked;
+            if (!showThis || vectors.length === 0) return;
+
+            const ps = parseFloat(pointNumber.value);
+            if (ps <= 0) return;
+
+            const dotColor = which === 'net' ? NET_POINT_COLOR : NODAL_POINT_COLOR;
+
+            const positions = [];
+            const colors = [];
+            for (const v of vectors) {
+                if (!activeObjects.has(v.obj)) continue;
+                positions.push(v.pos.x, v.pos.y, v.pos.z);
+                colors.push(dotColor.r, dotColor.g, dotColor.b, 1);
+            }
+            if (positions.length === 0) return;
+
+            const mesh = new BABYLON.Mesh(which + "Dots", scene);
+            const vertexData = new BABYLON.VertexData();
+            vertexData.positions = positions;
+            vertexData.colors = colors;
+            vertexData.applyToMesh(mesh);
+
+            const mat = new BABYLON.StandardMaterial(which + "DotMat", scene);
+            mat.pointsCloud = true;
+            mat.pointSize = ps;
+            mat.emissiveColor = dotColor;
+            mat.disableLighting = true;
+            mesh.material = mat;
+            mesh.isPickable = false;
+
+            if (which === 'net') netPointsMesh = mesh;
+            else nodalPointsMesh = mesh;
+        }
+
+        function rebuildVectors(vectors, which) {
+            if (which === 'net') { if (netVectorMesh) { netVectorMesh.dispose(); netVectorMesh = null; } }
+            else { if (nodalVectorMesh) { nodalVectorMesh.dispose(); nodalVectorMesh = null; } }
+
+            const showThis = which === 'net' ? chkShowNetForces.checked : chkShowNodalLoads.checked;
+            if (!showThis || vectors.length === 0) return;
+
+            const scale = parseFloat(scaleNumber.value);
+            const isLog = document.querySelector('input[name="scaleMode"]:checked').value === 'log';
+            const axis = axisSelect.value;
+
+            const cMin = parseFloat(vecColorMin.value);
+            const cMax = parseFloat(vecColorMax.value);
+
+            const dMin = bounds.min[axis];
+            const dMax = bounds.max[axis];
+            const dRange = dMax - dMin || 1;
+
+            const userMin = (parseFloat(sliceMin.value) / 1000) * dRange + dMin;
+            const userMax = (parseFloat(sliceMax.value) / 1000) * dRange + dMin;
+
+            const originColor = which === 'net' ? NET_ORIGIN_COLOR : NODAL_ORIGIN_COLOR;
+
+            const lines = [];
+            const colors = [];
+
+            for (const v of vectors) {
+                if (!activeObjects.has(v.obj)) continue;
+                const val = v.pos[axis];
+                if (val < userMin || val > userMax) continue;
+
+                let len = v.mag;
+                if (isLog) len = Math.log(1 + v.mag);
+                len *= scale;
+
+                const colorTip = getRainbowColor4(v.mag, cMin, cMax);
+                lines.push([v.pos, v.pos.add(v.dir.scale(len))]);
+                colors.push([originColor, colorTip]);
+            }
+
+            if (lines.length > 0) {
+                const mesh = BABYLON.MeshBuilder.CreateLineSystem(which + "Vec", { lines, colors }, scene);
+                mesh.isPickable = false;
+                if (which === 'net') netVectorMesh = mesh;
+                else nodalVectorMesh = mesh;
+            }
+        }
+
+        function updateSlicerPlanes(axis, valMin, valMax, visible) {
+            if (!visible || !axis) {
+                minPlane.isVisible = false;
+                maxPlane.isVisible = false;
+                return;
+            }
+
+            minPlane.isVisible = true;
+            maxPlane.isVisible = true;
+
+            const sizeX = (bounds.max.x - bounds.min.x) || 1;
+            const sizeY = (bounds.max.y - bounds.min.y) || 1;
+            const sizeZ = (bounds.max.z - bounds.min.z) || 1;
+            const c = bounds.center;
+
+            minPlane.rotationQuaternion = null;
+            maxPlane.rotationQuaternion = null;
+            minPlane.rotation = new BABYLON.Vector3(0, 0, 0);
+            maxPlane.rotation = new BABYLON.Vector3(0, 0, 0);
+
+            if (axis === 'z') {
+                minPlane.scaling.x = sizeX; minPlane.scaling.y = sizeY;
+                maxPlane.scaling.x = sizeX; maxPlane.scaling.y = sizeY;
+                minPlane.position = new BABYLON.Vector3(c.x, c.y, valMin);
+                maxPlane.position = new BABYLON.Vector3(c.x, c.y, valMax);
+            } else if (axis === 'x') {
+                minPlane.scaling.x = sizeZ; minPlane.scaling.y = sizeY;
+                maxPlane.scaling.x = sizeZ; maxPlane.scaling.y = sizeY;
+                minPlane.position = new BABYLON.Vector3(valMin, c.y, c.z);
+                maxPlane.position = new BABYLON.Vector3(valMax, c.y, c.z);
+                minPlane.rotation.y = Math.PI / 2;
+                maxPlane.rotation.y = Math.PI / 2;
+            } else if (axis === 'y') {
+                minPlane.scaling.x = sizeX; minPlane.scaling.y = sizeZ;
+                maxPlane.scaling.x = sizeX; maxPlane.scaling.y = sizeZ;
+                minPlane.position = new BABYLON.Vector3(c.x, valMin, c.z);
+                maxPlane.position = new BABYLON.Vector3(c.x, valMax, c.z);
+                minPlane.rotation.x = Math.PI / 2;
+                maxPlane.rotation.x = Math.PI / 2;
+            }
+        }
+
+        // =================================================================
+        //  8B. STRUCTURAL MESH BUILDER
+        // =================================================================
+
+        // Helper: compute element-averaged nodal displacement value
+        function getElemDispVal(fd, sc, nids, field) {
+            let sum = 0;
+            const d = sc.disp;
+            for (let k = 0; k < nids.length; k++) {
+                const i = fd.nidToIdx[nids[k]];
+                if (i === undefined) continue;
+                switch (field) {
+                    case 'disp_mag': {
+                        const tx = d[i*6], ty = d[i*6+1], tz = d[i*6+2];
+                        sum += Math.sqrt(tx*tx + ty*ty + tz*tz); break;
+                    }
+                    case 'disp_tx': sum += d[i*6]; break;
+                    case 'disp_ty': sum += d[i*6+1]; break;
+                    case 'disp_tz': sum += d[i*6+2]; break;
+                    case 'disp_rx': sum += d[i*6+3]; break;
+                    case 'disp_ry': sum += d[i*6+4]; break;
+                    case 'disp_rz': sum += d[i*6+5]; break;
+                }
+            }
+            return sum / nids.length;
+        }
+
+        // Helper: compute bar-averaged nodal displacement value
+        function getBarDispVal(fd, sc, ga, gb, field) {
+            return getElemDispVal(fd, sc, [ga, gb], field);
+        }
+
+        function structAutoScale() {
+            if (!chkStructAutoScale.checked) return;
+            if (!models[0].femData && !models[1].femData) return;
+
+            const shellField = structFieldSelect.value;
+            const barField = structBarFieldSelect.value;
+            const shellFieldMap = { fx:0, fy:1, fxy:2, mx:3, my:4, mxy:5, vonmises:6, strain_energy:0 };
+            const barFieldMap = { axial:0, shear_1:1, shear_2:2, torque:3, moment_a1:4, moment_a2:5, bar_vonmises:6, bar_strain_energy:0 };
+            const si = shellFieldMap[shellField] !== undefined ? shellFieldMap[shellField] : 6;
+            const bi = barFieldMap[barField] !== undefined ? barFieldMap[barField] : 0;
+            const isThickness = (shellField === 'thickness');
+            const isDispField = shellField.startsWith('disp_');
+            const isSectionArea = (barField === 'section_area');
+
+            let shellMn = Infinity, shellMx = -Infinity;
+            let barMn = Infinity, barMx = -Infinity;
+
+            // Scan both models
+            for (let idx = 0; idx < 2; idx++) {
+                const fd = models[idx].femData;
+                if (!fd) continue;
+                const sel = idx === 0 ? subcaseSelectA : subcaseSelectB;
+                const scIdx = parseInt(sel.value);
+                const sc = fd.subcases.find(s => s.sid === scIdx);
+                if (!sc) continue;
+
+                const nShells = fd.nQuads + fd.nTrias;
+                if (isThickness) {
+                    for (let i = 0; i < fd.nQuads; i++) { const val = fd.quads[i].thickness; if (val < shellMn) shellMn = val; if (val > shellMx) shellMx = val; }
+                    for (let i = 0; i < fd.nTrias; i++) { const val = fd.trias[i].thickness; if (val < shellMn) shellMn = val; if (val > shellMx) shellMx = val; }
+                } else if (isDispField) {
+                    for (let i = 0; i < fd.nQuads; i++) { const val = getElemDispVal(fd, sc, fd.quads[i].nodes, shellField); if (val < shellMn) shellMn = val; if (val > shellMx) shellMx = val; }
+                    for (let i = 0; i < fd.nTrias; i++) { const val = getElemDispVal(fd, sc, fd.trias[i].nodes, shellField); if (val < shellMn) shellMn = val; if (val > shellMx) shellMx = val; }
+                } else {
+                    for (let i = 0; i < nShells; i++) { const val = sc.shellResults[i * 7 + si]; if (val < shellMn) shellMn = val; if (val > shellMx) shellMx = val; }
+                }
+                if (isSectionArea) {
+                    for (let i = 0; i < fd.nBars; i++) { const val = fd.bars[i].area; if (val < barMn) barMn = val; if (val > barMx) barMx = val; }
+                    for (let i = 0; i < fd.nRods; i++) { const val = fd.rods[i].area; if (val < barMn) barMn = val; if (val > barMx) barMx = val; }
+                } else if (isDispField) {
+                    for (let i = 0; i < fd.nBars; i++) { const val = getBarDispVal(fd, sc, fd.bars[i].ga, fd.bars[i].gb, shellField); if (val < barMn) barMn = val; if (val > barMx) barMx = val; }
+                    for (let i = 0; i < fd.nRods; i++) { const val = getBarDispVal(fd, sc, fd.rods[i].ga, fd.rods[i].gb, shellField); if (val < barMn) barMn = val; if (val > barMx) barMx = val; }
+                } else {
+                    for (let i = 0; i < fd.nBars; i++) { const val = sc.barResults[i * 7 + bi]; if (val < barMn) barMn = val; if (val > barMx) barMx = val; }
+                    const ri = barField === 'torque' ? 1 : 0;
+                    for (let i = 0; i < fd.nRods; i++) { const val = sc.rodResults[i * 2 + ri]; if (val < barMn) barMn = val; if (val > barMx) barMx = val; }
+                }
+            }
+
+            if (shellMn === Infinity) { shellMn = 0; shellMx = 1; }
+            if (barMn === Infinity) { barMn = 0; barMx = 1; }
+
+            if (chkStructSymmetric.checked) {
+                const sa = Math.max(Math.abs(shellMn), Math.abs(shellMx)); shellMn = -sa; shellMx = sa;
+                const ba = Math.max(Math.abs(barMn), Math.abs(barMx)); barMn = -ba; barMx = ba;
+            }
+
+            structColorMin.value = shellMn.toExponential(3);
+            structColorMax.value = shellMx.toExponential(3);
+            structBarColorMin.value = barMn.toExponential(3);
+            structBarColorMax.value = barMx.toExponential(3);
+        }
+
+        function rebuildStructMeshFor(mIdx) {
+            // Dispose previous meshes for this model
+            const mm = modelMeshes[mIdx];
+            for (const key in mm) { if (mm[key]) { mm[key].dispose(); mm[key] = null; } }
+
+            const fd = models[mIdx].femData;
+            if (!fd) return;
+
+            const sel = mIdx === 0 ? subcaseSelectA : subcaseSelectB;
+            const scIdx = parseInt(sel.value);
+            const sc = fd.subcases.find(s => s.sid === scIdx);
+            if (!sc) return;
+
+            const defScale = parseFloat(defScaleNumber.value) || 0;
+            const zOff = getModelZOffset(mIdx);
+            const modelAlpha = getModelAlpha(mIdx);
+            const modelVisible = document.getElementById(mIdx === 0 ? 'chkShowModelA' : 'chkShowModelB').checked;
+
+            const shellField = structFieldSelect.value;
+            const barField = structBarFieldSelect.value;
+            const shellFieldMap = { fx:0, fy:1, fxy:2, mx:3, my:4, mxy:5, vonmises:6, strain_energy:0 };
+            const barFieldMap = { axial:0, shear_1:1, shear_2:2, torque:3, moment_a1:4, moment_a2:5, bar_vonmises:6, bar_strain_energy:0 };
+            const si = shellFieldMap[shellField] !== undefined ? shellFieldMap[shellField] : 6;
+            const bi = barFieldMap[barField] !== undefined ? barFieldMap[barField] : 0;
+            const isThickness = (shellField === 'thickness');
+            const isDispField = shellField.startsWith('disp_');
+            const isSectionArea = (barField === 'section_area');
+
+            let shellCMin = parseFloat(structColorMin.value);    if (isNaN(shellCMin)) shellCMin = 0;
+            let shellCMax = parseFloat(structColorMax.value);    if (isNaN(shellCMax)) shellCMax = 1;
+            const shellCRange = shellCMax - shellCMin;
+            let barCMin = parseFloat(structBarColorMin.value);   if (isNaN(barCMin)) barCMin = 0;
+            let barCMax = parseFloat(structBarColorMax.value);   if (isNaN(barCMax)) barCMax = 1;
+            const barCRange = barCMax - barCMin;
+
+            // Color bar (draw once, from first model or whichever)
+            if (mIdx === 0) {
+                const shellLabels = { fx:'Fx', fy:'Fy', fxy:'Fxy', mx:'Mx', my:'My', mxy:'Mxy', vonmises:'Von Mises', thickness:'Thickness',
+                    disp_mag:'|Displacement|', disp_tx:'Tx', disp_ty:'Ty', disp_tz:'Tz', disp_rx:'Rx', disp_ry:'Ry', disp_rz:'Rz', strain_energy:'Strain Energy' };
+                drawColorBar(shellCMin, shellCMax, shellLabels[shellField] || shellField);
+            }
+
+            const usc = femUnitScale;
+            let _missingWarnCount = 0;
+            function getNodePos(nid) {
+                const i = fd.nidToIdx[nid];
+                if (i === undefined) { if (_missingWarnCount++ < 5) console.warn('getNodePos: node', nid, 'missing'); return {x:0,y:0,z:0}; }
+                const n = fd.nodes[i]; const d = sc.disp;
+                return { x: (n.x + d[i*6]*defScale)*usc, y: (n.y + d[i*6+1]*defScale)*usc, z: (n.z + d[i*6+2]*defScale)*usc + zOff };
+            }
+            function getNodeOrig(nid) {
+                const i = fd.nidToIdx[nid];
+                if (i === undefined) return {x:0,y:0,z:0};
+                const n = fd.nodes[i];
+                return { x: n.x*usc, y: n.y*usc, z: n.z*usc + zOff };
+            }
+
+            // Helper to set visibility on a mesh
+            function finishMesh(mesh) { if (mesh) mesh.isVisible = modelVisible; }
+
+            // ---- SHELL MESH ----
+            if (chkShowShells.checked) {
+                const nQuads = fd.nQuads;
+                const nTrias = fd.nTrias;
+                const nTriangles = nQuads * 2 + nTrias;
+
+                if (nTriangles > 0) {
+                    const positions = new Float32Array(nTriangles * 9);
+                    const indices = new Uint32Array(nTriangles * 3);
+                    const colorsRGBA = new Float32Array(nTriangles * 12);
+                    const normals = new Float32Array(nTriangles * 9);
+
+                    let triIdx = 0;
+
+                    // CQUAD4: split into 2 triangles (1-2-3, 1-3-4)
+                    for (let i = 0; i < nQuads; i++) {
+                        const q = fd.quads[i];
+                        const p1 = getNodePos(q.nodes[0]);
+                        const p2 = getNodePos(q.nodes[1]);
+                        const p3 = getNodePos(q.nodes[2]);
+                        const p4 = getNodePos(q.nodes[3]);
+
+                        const val = isThickness ? q.thickness : isDispField ? getElemDispVal(fd, sc, q.nodes, shellField) : sc.shellResults[i * 7 + si];
+                        const t = shellCRange > 0 ? (val - shellCMin) / shellCRange : 0.5;
+                        const [cr, cg, cb] = getRainbow(t);
+
+                        // Triangle 1: 1-2-3
+                        let pBase = triIdx * 9;
+                        positions[pBase  ] = p1.x; positions[pBase+1] = p1.y; positions[pBase+2] = p1.z;
+                        positions[pBase+3] = p2.x; positions[pBase+4] = p2.y; positions[pBase+5] = p2.z;
+                        positions[pBase+6] = p3.x; positions[pBase+7] = p3.y; positions[pBase+8] = p3.z;
+                        let iBase = triIdx * 3;
+                        indices[iBase] = triIdx*3; indices[iBase+1] = triIdx*3+1; indices[iBase+2] = triIdx*3+2;
+                        // Compute normal
+                        const e1x = p2.x-p1.x, e1y = p2.y-p1.y, e1z = p2.z-p1.z;
+                        const e2x = p3.x-p1.x, e2y = p3.y-p1.y, e2z = p3.z-p1.z;
+                        let nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x;
+                        let nl = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+                        nx/=nl; ny/=nl; nz/=nl;
+                        for (let v=0;v<3;v++) { normals[pBase+v*3]=nx; normals[pBase+v*3+1]=ny; normals[pBase+v*3+2]=nz; }
+                        let cBase = triIdx * 12;
+                        for (let v=0;v<3;v++) { colorsRGBA[cBase+v*4]=cr; colorsRGBA[cBase+v*4+1]=cg; colorsRGBA[cBase+v*4+2]=cb; colorsRGBA[cBase+v*4+3]=1; }
+                        triIdx++;
+
+                        // Triangle 2: 1-3-4
+                        pBase = triIdx * 9;
+                        positions[pBase  ] = p1.x; positions[pBase+1] = p1.y; positions[pBase+2] = p1.z;
+                        positions[pBase+3] = p3.x; positions[pBase+4] = p3.y; positions[pBase+5] = p3.z;
+                        positions[pBase+6] = p4.x; positions[pBase+7] = p4.y; positions[pBase+8] = p4.z;
+                        iBase = triIdx * 3;
+                        indices[iBase] = triIdx*3; indices[iBase+1] = triIdx*3+1; indices[iBase+2] = triIdx*3+2;
+                        for (let v=0;v<3;v++) { normals[pBase+v*3]=nx; normals[pBase+v*3+1]=ny; normals[pBase+v*3+2]=nz; }
+                        cBase = triIdx * 12;
+                        for (let v=0;v<3;v++) { colorsRGBA[cBase+v*4]=cr; colorsRGBA[cBase+v*4+1]=cg; colorsRGBA[cBase+v*4+2]=cb; colorsRGBA[cBase+v*4+3]=1; }
+                        triIdx++;
+                    }
+
+                    // CTRIA3
+                    for (let i = 0; i < nTrias; i++) {
+                        const tr = fd.trias[i];
+                        const p1 = getNodePos(tr.nodes[0]);
+                        const p2 = getNodePos(tr.nodes[1]);
+                        const p3 = getNodePos(tr.nodes[2]);
+
+                        const shellIdx = nQuads + i;
+                        const val = isThickness ? tr.thickness : isDispField ? getElemDispVal(fd, sc, tr.nodes, shellField) : sc.shellResults[shellIdx * 7 + si];
+                        const t = shellCRange > 0 ? (val - shellCMin) / shellCRange : 0.5;
+                        const [cr, cg, cb] = getRainbow(t);
+
+                        const pBase = triIdx * 9;
+                        positions[pBase  ] = p1.x; positions[pBase+1] = p1.y; positions[pBase+2] = p1.z;
+                        positions[pBase+3] = p2.x; positions[pBase+4] = p2.y; positions[pBase+5] = p2.z;
+                        positions[pBase+6] = p3.x; positions[pBase+7] = p3.y; positions[pBase+8] = p3.z;
+                        const iBase = triIdx * 3;
+                        indices[iBase] = triIdx*3; indices[iBase+1] = triIdx*3+1; indices[iBase+2] = triIdx*3+2;
+                        const e1x = p2.x-p1.x, e1y = p2.y-p1.y, e1z = p2.z-p1.z;
+                        const e2x = p3.x-p1.x, e2y = p3.y-p1.y, e2z = p3.z-p1.z;
+                        let nx = e1y*e2z - e1z*e2y, ny = e1z*e2x - e1x*e2z, nz = e1x*e2y - e1y*e2x;
+                        let nl = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+                        nx/=nl; ny/=nl; nz/=nl;
+                        for (let v=0;v<3;v++) { normals[pBase+v*3]=nx; normals[pBase+v*3+1]=ny; normals[pBase+v*3+2]=nz; }
+                        const cBase = triIdx * 12;
+                        for (let v=0;v<3;v++) { colorsRGBA[cBase+v*4]=cr; colorsRGBA[cBase+v*4+1]=cg; colorsRGBA[cBase+v*4+2]=cb; colorsRGBA[cBase+v*4+3]=1; }
+                        triIdx++;
+                    }
+
+                    mm.shell = new BABYLON.Mesh("structShell_" + mIdx, scene);
+                    const vertexData = new BABYLON.VertexData();
+                    vertexData.positions = positions;
+                    vertexData.indices = indices;
+                    vertexData.normals = normals;
+                    vertexData.colors = colorsRGBA;
+                    vertexData.applyToMesh(mm.shell);
+
+                    const mat = new BABYLON.StandardMaterial("structShellMat_" + mIdx, scene);
+                    mat.backFaceCulling = !chkStructBackface.checked;
+                    mat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+                    mat.specularColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                    mat.specularPower = 48;
+                    const em = currentEmissive || 0.08;
+                    mat.emissiveColor = new BABYLON.Color3(em, em, em);
+                    mat.alpha = modelAlpha;
+                    if (modelAlpha < 1) { mat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND; mat.needDepthPrePass = true; }
+                    mm.shell.material = mat;
+                    mm.shell.isPickable = true;
+                    finishMesh(mm.shell);
+
+                    // Wireframe overlay
+                    if (chkStructWireframe.checked) {
+                        mm.wire = mm.shell.clone("structWire_" + mIdx);
+                        const wMat = new BABYLON.StandardMaterial("structWireMat_" + mIdx, scene);
+                        wMat.wireframe = true;
+                        wMat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.3);
+                        wMat.disableLighting = true;
+                        wMat.backFaceCulling = false;
+                        mm.wire.material = wMat;
+                        mm.wire.isPickable = false;
+                        finishMesh(mm.wire);
+                    }
+                }
+            }
+
+            // ---- GHOST (undeformed) ----
+            if (chkShowGhost.checked && defScale !== 0) {
+                const nQuads = fd.nQuads;
+                const nTrias = fd.nTrias;
+                const nTriangles = nQuads * 2 + nTrias;
+
+                if (nTriangles > 0) {
+                    const positions = new Float32Array(nTriangles * 9);
+                    const indices = new Uint32Array(nTriangles * 3);
+                    let triIdx = 0;
+
+                    for (let i = 0; i < nQuads; i++) {
+                        const q = fd.quads[i];
+                        const p1 = getNodeOrig(q.nodes[0]);
+                        const p2 = getNodeOrig(q.nodes[1]);
+                        const p3 = getNodeOrig(q.nodes[2]);
+                        const p4 = getNodeOrig(q.nodes[3]);
+
+                        let pBase = triIdx * 9;
+                        positions[pBase]=p1.x; positions[pBase+1]=p1.y; positions[pBase+2]=p1.z;
+                        positions[pBase+3]=p2.x; positions[pBase+4]=p2.y; positions[pBase+5]=p2.z;
+                        positions[pBase+6]=p3.x; positions[pBase+7]=p3.y; positions[pBase+8]=p3.z;
+                        indices[triIdx*3]=triIdx*3; indices[triIdx*3+1]=triIdx*3+1; indices[triIdx*3+2]=triIdx*3+2;
+                        triIdx++;
+
+                        pBase = triIdx * 9;
+                        positions[pBase]=p1.x; positions[pBase+1]=p1.y; positions[pBase+2]=p1.z;
+                        positions[pBase+3]=p3.x; positions[pBase+4]=p3.y; positions[pBase+5]=p3.z;
+                        positions[pBase+6]=p4.x; positions[pBase+7]=p4.y; positions[pBase+8]=p4.z;
+                        indices[triIdx*3]=triIdx*3; indices[triIdx*3+1]=triIdx*3+1; indices[triIdx*3+2]=triIdx*3+2;
+                        triIdx++;
+                    }
+                    for (let i = 0; i < nTrias; i++) {
+                        const tr = fd.trias[i];
+                        const p1 = getNodeOrig(tr.nodes[0]);
+                        const p2 = getNodeOrig(tr.nodes[1]);
+                        const p3 = getNodeOrig(tr.nodes[2]);
+
+                        const pBase = triIdx * 9;
+                        positions[pBase]=p1.x; positions[pBase+1]=p1.y; positions[pBase+2]=p1.z;
+                        positions[pBase+3]=p2.x; positions[pBase+4]=p2.y; positions[pBase+5]=p2.z;
+                        positions[pBase+6]=p3.x; positions[pBase+7]=p3.y; positions[pBase+8]=p3.z;
+                        indices[triIdx*3]=triIdx*3; indices[triIdx*3+1]=triIdx*3+1; indices[triIdx*3+2]=triIdx*3+2;
+                        triIdx++;
+                    }
+
+                    mm.ghost = new BABYLON.Mesh("structGhost_" + mIdx, scene);
+                    const gvd = new BABYLON.VertexData();
+                    gvd.positions = positions;
+                    gvd.indices = indices;
+                    gvd.applyToMesh(mm.ghost);
+
+                    const gMat = new BABYLON.StandardMaterial("ghostMat_" + mIdx, scene);
+                    gMat.wireframe = true;
+                    gMat.emissiveColor = new BABYLON.Color3(0.15, 0.4, 0.15);
+                    gMat.disableLighting = true;
+                    gMat.backFaceCulling = false;
+                    gMat.alpha = 0.3 * modelAlpha;
+                    mm.ghost.material = gMat;
+                    mm.ghost.isPickable = false;
+                    finishMesh(mm.ghost);
+                }
+            }
+
+            // ---- BAR/ROD MESH (line system) ----
+            if (chkShowBars.checked && (fd.nBars > 0 || fd.nRods > 0)) {
+                const lines = [];
+                const colors = [];
+
+                for (let i = 0; i < fd.nBars; i++) {
+                    const b = fd.bars[i];
+                    const pa = getNodePos(b.ga);
+                    const pb = getNodePos(b.gb);
+                    const val = isSectionArea ? b.area : isDispField ? getBarDispVal(fd, sc, b.ga, b.gb, shellField) : sc.barResults[i * 7 + bi];
+                    const t = barCRange > 0 ? (val - barCMin) / barCRange : 0.5;
+                    const [cr, cg, cb] = getRainbow(t);
+                    const c4 = new BABYLON.Color4(cr, cg, cb, 1);
+                    lines.push([new BABYLON.Vector3(pa.x, pa.y, pa.z), new BABYLON.Vector3(pb.x, pb.y, pb.z)]);
+                    colors.push([c4, c4]);
+                }
+
+                const ri = barField === 'torque' ? 1 : 0;
+                for (let i = 0; i < fd.nRods; i++) {
+                    const r = fd.rods[i];
+                    const pa = getNodePos(r.ga);
+                    const pb = getNodePos(r.gb);
+                    const val = isSectionArea ? r.area : isDispField ? getBarDispVal(fd, sc, r.ga, r.gb, shellField) : sc.rodResults[i * 2 + ri];
+                    const t = barCRange > 0 ? (val - barCMin) / barCRange : 0.5;
+                    const [cr, cg, cb] = getRainbow(t);
+                    const c4 = new BABYLON.Color4(cr, cg, cb, 1);
+                    lines.push([new BABYLON.Vector3(pa.x, pa.y, pa.z), new BABYLON.Vector3(pb.x, pb.y, pb.z)]);
+                    colors.push([c4, c4]);
+                }
+
+                if (lines.length > 0) {
+                    mm.bar = BABYLON.MeshBuilder.CreateLineSystem("structBars_" + mIdx, { lines, colors }, scene);
+                    mm.bar.isPickable = false;
+                    finishMesh(mm.bar);
+                }
+            }
+
+            // ---- CELAS SPRINGS (line system, cyan) ----
+            if (chkShowSprings.checked && fd.celas && fd.celas.length > 0) {
+                const lines = [];
+                const colors = [];
+                const c4 = new BABYLON.Color4(0, 0.8, 0.8, modelAlpha);
+                for (const el of fd.celas) {
+                    if (fd.nidToIdx[el.g1] === undefined || fd.nidToIdx[el.g2] === undefined) continue;
+                    const pa = getNodePos(el.g1);
+                    const pb = getNodePos(el.g2);
+                    lines.push([new BABYLON.Vector3(pa.x, pa.y, pa.z), new BABYLON.Vector3(pb.x, pb.y, pb.z)]);
+                    colors.push([c4, c4]);
+                }
+                if (lines.length > 0) {
+                    mm.celas = BABYLON.MeshBuilder.CreateLineSystem("structCelas_" + mIdx, { lines, colors }, scene);
+                    mm.celas.isPickable = false;
+                    finishMesh(mm.celas);
+                }
+            }
+
+            // ---- RBE2 (line system, orange, star from master to slaves) ----
+            if (chkShowRBE2.checked && fd.rbe2s && fd.rbe2s.length > 0) {
+                const lines = [];
+                const colors = [];
+                const c4 = new BABYLON.Color4(1.0, 0.6, 0.0, modelAlpha);
+                for (const rbe of fd.rbe2s) {
+                    if (fd.nidToIdx[rbe.gn] === undefined) continue;
+                    const pm = getNodePos(rbe.gn);
+                    const vm = new BABYLON.Vector3(pm.x, pm.y, pm.z);
+                    for (const s of rbe.slaves) {
+                        if (fd.nidToIdx[s] === undefined) continue;
+                        const ps = getNodePos(s);
+                        lines.push([vm, new BABYLON.Vector3(ps.x, ps.y, ps.z)]);
+                        colors.push([c4, c4]);
+                    }
+                }
+                if (lines.length > 0) {
+                    mm.rbe2 = BABYLON.MeshBuilder.CreateLineSystem("structRBE2_" + mIdx, { lines, colors }, scene);
+                    mm.rbe2.isPickable = false;
+                    finishMesh(mm.rbe2);
+                }
+            }
+
+            // ---- RBE3 (line system, magenta, star from refgrid to deps) ----
+            if (chkShowRBE3.checked && fd.rbe3s && fd.rbe3s.length > 0) {
+                const lines = [];
+                const colors = [];
+                const c4 = new BABYLON.Color4(0.8, 0.2, 0.8, modelAlpha);
+                for (const rbe of fd.rbe3s) {
+                    if (fd.nidToIdx[rbe.refgrid] === undefined) continue;
+                    const pr = getNodePos(rbe.refgrid);
+                    const vr = new BABYLON.Vector3(pr.x, pr.y, pr.z);
+                    for (const d of rbe.deps) {
+                        if (fd.nidToIdx[d] === undefined) continue;
+                        const pd = getNodePos(d);
+                        lines.push([vr, new BABYLON.Vector3(pd.x, pd.y, pd.z)]);
+                        colors.push([c4, c4]);
+                    }
+                }
+                if (lines.length > 0) {
+                    mm.rbe3 = BABYLON.MeshBuilder.CreateLineSystem("structRBE3_" + mIdx, { lines, colors }, scene);
+                    mm.rbe3.isPickable = false;
+                    finishMesh(mm.rbe3);
+                }
+            }
+
+            // ---- SPC MARKERS (point cloud, red, larger points) ----
+            if (chkShowSPC.checked && sc.spc && sc.spc.length > 0) {
+                const spcPos = [];
+                const spcCol = [];
+                for (const s of sc.spc) {
+                    if (fd.nidToIdx[s.nid] === undefined) continue;
+                    const p = getNodePos(s.nid);
+                    spcPos.push(p.x, p.y, p.z);
+                    spcCol.push(1.0, 0.2, 0.2, modelAlpha);
+                }
+                if (spcPos.length > 0) {
+                    mm.spc = new BABYLON.Mesh("structSPC_" + mIdx, scene);
+                    const svd = new BABYLON.VertexData();
+                    svd.positions = new Float32Array(spcPos);
+                    svd.colors = new Float32Array(spcCol);
+                    svd.applyToMesh(mm.spc);
+                    const smat = new BABYLON.StandardMaterial("spcMat_" + mIdx, scene);
+                    smat.pointsCloud = true;
+                    smat.pointSize = 8;
+                    smat.emissiveColor = new BABYLON.Color3(1.0, 0.2, 0.2);
+                    smat.disableLighting = true;
+                    mm.spc.material = smat;
+                    mm.spc.isPickable = false;
+                    finishMesh(mm.spc);
+                }
+            }
+
+            // ---- FORCE ARROWS (line system, red) ----
+            if (chkShowForces.checked && sc.forces && sc.forces.length > 0) {
+                let maxFMag = 0;
+                for (const f of sc.forces) {
+                    const mag = Math.sqrt(f.fx*f.fx + f.fy*f.fy + f.fz*f.fz);
+                    if (mag > maxFMag) maxFMag = mag;
+                }
+                const bboxDiag = models[mIdx].bounds ? models[mIdx].bounds.size : 1;
+                const arrowScale = maxFMag > 0 ? (bboxDiag * 0.1) / maxFMag : 1;
+
+                const fLines = [];
+                const fColors = [];
+                const fc4base = new BABYLON.Color4(1.0, 0.0, 0.0, modelAlpha);
+                const fc4tip  = new BABYLON.Color4(1.0, 0.4, 0.0, modelAlpha);
+
+                for (const f of sc.forces) {
+                    if (fd.nidToIdx[f.nid] === undefined) continue;
+                    const mag = Math.sqrt(f.fx*f.fx + f.fy*f.fy + f.fz*f.fz);
+                    if (mag < 1e-20) continue;
+                    const p = getNodePos(f.nid);
+                    const origin = new BABYLON.Vector3(p.x, p.y, p.z);
+                    const dir = new BABYLON.Vector3(f.fx/mag, f.fy/mag, f.fz/mag);
+                    const len = mag * arrowScale;
+                    const tip = origin.add(dir.scale(len));
+                    fLines.push([origin, tip]);
+                    fColors.push([fc4base, fc4tip]);
+                    const headLen = len * 0.2;
+                    const up = Math.abs(dir.y) < 0.9 ? new BABYLON.Vector3(0,1,0) : new BABYLON.Vector3(1,0,0);
+                    const perp1 = BABYLON.Vector3.Cross(dir, up).normalize();
+                    const perp2 = BABYLON.Vector3.Cross(dir, perp1).normalize();
+                    const backDir = dir.scale(-headLen);
+                    fLines.push([tip, tip.add(backDir).add(perp1.scale(headLen * 0.35))]);
+                    fColors.push([fc4tip, fc4tip]);
+                    fLines.push([tip, tip.add(backDir).add(perp1.scale(-headLen * 0.35))]);
+                    fColors.push([fc4tip, fc4tip]);
+                    fLines.push([tip, tip.add(backDir).add(perp2.scale(headLen * 0.35))]);
+                    fColors.push([fc4tip, fc4tip]);
+                    fLines.push([tip, tip.add(backDir).add(perp2.scale(-headLen * 0.35))]);
+                    fColors.push([fc4tip, fc4tip]);
+                }
+                if (fLines.length > 0) {
+                    mm.force = BABYLON.MeshBuilder.CreateLineSystem("structForces_" + mIdx, { lines: fLines, colors: fColors }, scene);
+                    finishMesh(mm.force);
+                }
+            }
+
+            // ---- MOMENT ARROWS (line system, blue) ----
+            if (chkShowMoments.checked && sc.moments && sc.moments.length > 0) {
+                let maxMMag = 0;
+                for (const m of sc.moments) {
+                    const mag = Math.sqrt(m.mx*m.mx + m.my*m.my + m.mz*m.mz);
+                    if (mag > maxMMag) maxMMag = mag;
+                }
+                const bboxDiag = models[mIdx].bounds ? models[mIdx].bounds.size : 1;
+                const arrowScale = maxMMag > 0 ? (bboxDiag * 0.1) / maxMMag : 1;
+
+                const mLines = [];
+                const mColors = [];
+                const mc4base = new BABYLON.Color4(0.2, 0.4, 1.0, modelAlpha);
+                const mc4tip  = new BABYLON.Color4(0.4, 0.6, 1.0, modelAlpha);
+
+                for (const m of sc.moments) {
+                    if (fd.nidToIdx[m.nid] === undefined) continue;
+                    const mag = Math.sqrt(m.mx*m.mx + m.my*m.my + m.mz*m.mz);
+                    if (mag < 1e-20) continue;
+                    const p = getNodePos(m.nid);
+                    const origin = new BABYLON.Vector3(p.x, p.y, p.z);
+                    const dir = new BABYLON.Vector3(m.mx/mag, m.my/mag, m.mz/mag);
+                    const len = mag * arrowScale;
+                    const tip = origin.add(dir.scale(len));
+                    const tipNeg = origin.subtract(dir.scale(len * 0.5));
+                    mLines.push([tipNeg, tip]);
+                    mColors.push([mc4base, mc4tip]);
+                    const headLen = len * 0.2;
+                    const up = Math.abs(dir.y) < 0.9 ? new BABYLON.Vector3(0,1,0) : new BABYLON.Vector3(1,0,0);
+                    const perp1 = BABYLON.Vector3.Cross(dir, up).normalize();
+                    const perp2 = BABYLON.Vector3.Cross(dir, perp1).normalize();
+                    const backDir = dir.scale(-headLen);
+                    mLines.push([tip, tip.add(backDir).add(perp1.scale(headLen * 0.35))]);
+                    mColors.push([mc4tip, mc4tip]);
+                    mLines.push([tip, tip.add(backDir).add(perp1.scale(-headLen * 0.35))]);
+                    mColors.push([mc4tip, mc4tip]);
+                    mLines.push([tip, tip.add(backDir).add(perp2.scale(headLen * 0.35))]);
+                    mColors.push([mc4tip, mc4tip]);
+                    mLines.push([tip, tip.add(backDir).add(perp2.scale(-headLen * 0.35))]);
+                    mColors.push([mc4tip, mc4tip]);
+                }
+                if (mLines.length > 0) {
+                    mm.moment = BABYLON.MeshBuilder.CreateLineSystem("structMoments_" + mIdx, { lines: mLines, colors: mColors }, scene);
+                    finishMesh(mm.moment);
+                }
+            }
+
+            // Rebuild nodes if visible
+            if (chkShowNodes.checked) buildNodesMeshFor(mIdx);
+
+            updateStats();
+        }
+
+        // =================================================================
+        //  9. STATUS
+        // =================================================================
+        function updateStats() {
+            const parts = [];
+            if (meshData) {
+                let vis = 0;
+                for (let i = 0; i < meshData.n_tri; i++) {
+                    const objName = meshData.objectNames[meshData.objectIds[i] - 1];
+                    if (activeObjects.has(objName)) vis++;
+                }
+                parts.push(`Surface: ${vis.toLocaleString()} / ${meshData.n_tri.toLocaleString()} tri`);
+            }
+            if (rawNetVectors.length > 0) {
+                let vis = 0;
+                for (const v of rawNetVectors) { if (activeObjects.has(v.obj)) vis++; }
+                parts.push(`Net: ${vis.toLocaleString()} / ${rawNetVectors.length.toLocaleString()}`);
+            }
+            if (rawNodalVectors.length > 0) {
+                let vis = 0;
+                for (const v of rawNodalVectors) { if (activeObjects.has(v.obj)) vis++; }
+                parts.push(`Nodal: ${vis.toLocaleString()} / ${rawNodalVectors.length.toLocaleString()}`);
+            }
+            if (allObjectNames.size > 1) {
+                parts.push(`Obj: ${activeObjects.size}/${allObjectNames.size}`);
+            }
+            for (let mi = 0; mi < 2; mi++) {
+                const fd = models[mi].femData;
+                if (!fd) continue;
+                const tag = mi === 0 ? 'A' : 'B';
+                const fn = models[mi].filename || ('Model ' + tag);
+                let femStats = `${tag}: ${fn} — ${fd.nNodes}n, ${fd.nQuads}Q+${fd.nTrias}T, ${fd.nBars}B+${fd.nRods}R`;
+                if (fd.nCelas > 0) femStats += `, ${fd.nCelas}S`;
+                if (fd.nRBE2 > 0) femStats += `, ${fd.nRBE2}RBE2`;
+                if (fd.nRBE3 > 0) femStats += `, ${fd.nRBE3}RBE3`;
+                parts.push(femStats);
+            }
+            document.getElementById('stats').textContent = parts.length > 0 ? parts.join(' | ') : 'No files loaded.';
+        }
+
+        // =================================================================
+        //  10. INTERACTION
+        // =================================================================
+        function getPick(x, y) {
+            const hit = scene.pick(x, y);
+            if (hit.hit) return hit.pickedPoint;
+            const ray = scene.createPickingRay(x, y, BABYLON.Matrix.Identity(), scene.activeCamera);
+            const dist = BABYLON.Vector3.Distance(scene.activeCamera.position, scene.activeCamera.target);
+            return ray.origin.add(ray.direction.scale(dist));
+        }
+
+        canvas.addEventListener("pointerdown", (evt) => {
+            if (evt.button === 2) {
+                const target = getPick(evt.clientX, evt.clientY);
+                const anim = new BABYLON.Animation("t", "target", 60, BABYLON.Animation.ANIMATIONTYPE_VECTOR3);
+                anim.setKeys([{ frame: 0, value: scene.activeCamera.target }, { frame: 20, value: target }]);
+                scene.beginDirectAnimation(scene.activeCamera, [anim], 0, 20);
+                pivotMarker.position = target;
+                pivotMarker.isVisible = true;
+                const s = scene.activeCamera.radius * 0.03;
+                pivotMarker.scaling = new BABYLON.Vector3(s, s, s);
+            }
+            if (evt.shiftKey && evt.button === 0) {
+                isSelecting = true;
+                startX = evt.clientX;
+                startY = evt.clientY;
+                scene.activeCamera.detachControl();
+                selectionBox.style.display = "block";
+                updateBox(startX, startY);
+            }
+        });
+
+        let isSelecting = false;
+        let startX = 0, startY = 0;
+
+        canvas.addEventListener("pointermove", (evt) => {
+            if (isSelecting) updateBox(evt.clientX, evt.clientY);
+        });
+
+        function updateBox(currX, currY) {
+            selectionBox.style.left = Math.min(startX, currX) + 'px';
+            selectionBox.style.top = Math.min(startY, currY) + 'px';
+            selectionBox.style.width = Math.abs(startX - currX) + 'px';
+            selectionBox.style.height = Math.abs(startY - currY) + 'px';
+        }
+
+        canvas.addEventListener("pointerup", (evt) => {
+            if (isSelecting) {
+                isSelecting = false;
+                selectionBox.style.display = "none";
+                scene.activeCamera.attachControl(canvas, true, false, 1);
+                scene.activeCamera._panningMouseButton = 1;
+                if (scene.activeCamera.inputs.attached.pointers)
+                    scene.activeCamera.inputs.attached.pointers._panningMouseButton = 1;
+                const w = Math.abs(evt.clientX - startX);
+                const h = Math.abs(evt.clientY - startY);
+                if (w > 10 && h > 10) performZoom(startX, startY, evt.clientX, evt.clientY, w, h);
+            }
+        });
+
+        function performZoom(x1, y1, x2, y2, w, h) {
+            const cx = (x1 + x2) / 2;
+            const cy = (y1 + y2) / 2;
+            const newTarget = getPick(cx, cy);
+            let ratio = h / canvas.clientHeight;
+            if (ratio < 0.02) ratio = 0.02;
+            const newRadius = scene.activeCamera.radius * ratio;
+
+            const animT = new BABYLON.Animation("t", "target", 60, BABYLON.Animation.ANIMATIONTYPE_VECTOR3);
+            animT.setKeys([{ frame: 0, value: scene.activeCamera.target.clone() }, { frame: 30, value: newTarget }]);
+            const animR = new BABYLON.Animation("r", "radius", 60, BABYLON.Animation.ANIMATIONTYPE_FLOAT);
+            animR.setKeys([{ frame: 0, value: scene.activeCamera.radius }, { frame: 30, value: newRadius }]);
+            scene.beginDirectAnimation(scene.activeCamera, [animT, animR], 0, 30);
+
+            pivotMarker.position = newTarget;
+            pivotMarker.isVisible = true;
+            const s = newRadius * 0.03;
+            pivotMarker.scaling = new BABYLON.Vector3(s, s, s);
+        }
+    </script>
+</body>
+</html>
