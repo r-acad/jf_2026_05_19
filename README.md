@@ -141,6 +141,21 @@ Linux/macOS Bash:
 julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf JFEM/output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
+The output folder is the second path after the input deck. To write results to
+a custom folder, change that argument:
+
+Windows PowerShell:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf.jl C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+```
+
 Outputs are written under the output directory:
 
 Windows:
@@ -195,6 +210,21 @@ Linux/macOS Bash:
 
 ```bash
 julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf_batch.jl cases.txt JFEM/output/batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
+```
+
+The batch output root is the path after `cases.txt`. To write all case folders
+under a custom output root, change that argument:
+
+Windows PowerShell:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf_batch.jl cases.txt D:\jfem_runs\batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf_batch.jl cases.txt /home/user/jfem_runs/batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
 ```
 
 Batch outputs:
