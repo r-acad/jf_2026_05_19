@@ -60,6 +60,26 @@ Pick one representative SOL 105 deck from the same model family you expect to
 run. This one-time step precompiles the solver using that deck and the same
 fast flags used later for production runs:
 
+What this does:
+
+- Julia compiles functions when it first sees the specific data types and code
+  paths used by a run.
+- A SOL 105 buckling case exercises many solver paths: parsing, model building,
+  shell assembly, static preload, geometric stiffness assembly, eigenvalue
+  setup, and report generation.
+- `JFEM_SOL105_PRECOMPILE_BDF` tells OpenJFEM to run one typical SOL 105 deck
+  during package precompilation so those hot methods are compiled before the
+  production run.
+- The deck should be representative. A tiny or very different deck will not
+  exercise the same element, material, property, load, constraint, and buckling
+  paths as the cases you run later.
+- The step is a speed optimization only. It does not change the model, solver
+  equations, buckling load factors, or numerical results.
+
+This step is not required for correctness, but it is the fastest setup for
+repeated SOL 105 work because later single-case and batch runs start closer to
+a warmed-up Julia session.
+
 ```powershell
 $env:JFEM_SOL105_PRECOMPILE_WORKLOAD = "true"
 $env:JFEM_SOL105_PRECOMPILE_BDF = (Resolve-Path path\to\representative_sol105.bdf).Path
