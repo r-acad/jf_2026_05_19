@@ -151,19 +151,25 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - Threaded shell stiffness and geometric-stiffness assembly.
 - A lean solver bootstrap path for solver-only workflows.
 - A full package precompile path using `PrecompileTools`.
-- One-command SOL 105 precompile setup with `JFEM/tools/precompile_sol105.jl`,
-  driven by a representative user deck.
+- One-command fast deployment with `JFEM/tools/deploy_fast.jl`, driven by
+  bundled precompile decks, user representative decks, or JSON batch manifests.
 - Batch execution in one Julia process to avoid repeated startup and method
   compilation.
+- JSON manifest batch execution with explicit per-case input and output paths.
+- A JSONL persistent worker for Python-driven optimization loops.
+- Optional PackageCompiler sysimage creation from the deployment helper when
+  PackageCompiler is available.
 - Optional suppression of `.jfem` binary export for timing-sensitive runs.
 - Run manifests that record active `JFEM_*` flags and command arguments.
 
 For production SOL 105 work, the recommended path is:
 
-1. Precompile with a representative SOL 105 deck using
-   `JFEM/tools/precompile_sol105.jl`.
-2. Run a manifest-based batch with `run_bdf_batch.jl`.
-3. Disable `.jfem` export unless interactive visualization is required.
+1. Run `JFEM/tools/deploy_fast.jl` once with bundled or representative decks.
+2. Run command-line single cases with `run_bdf.jl` and command-line batches
+   with `run_batch_manifest.jl`.
+3. For optimization loops, start `JFEM/tools/jfem_worker_jsonl.jl` once and
+   submit JSON manifests from Python using `JFEM/python/jfem_client.py`.
+4. Disable `.jfem` export unless interactive visualization is required.
 
 ## Optimization And Sensitivity Analysis
 
@@ -214,11 +220,17 @@ side-by-side model inspection.
 
 The public command-line runner scripts are:
 
-- `precompile_sol105.jl`: one-command setup for the representative SOL 105
-  precompile workflow.
+- `deploy_fast.jl`: preferred fast deployment and broad precompile workflow.
+- `run_batch_manifest.jl`: preferred explicit JSON-manifest batch runner.
+- `jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
+  optimization loops.
+- `JFEM/python/jfem_client.py`: Python 3.8+ stdlib-only helper for writing
+  batch manifests and controlling the JSONL worker.
+- `precompile_sol105.jl`: focused legacy helper for representative SOL 105
+  precompile setup.
 - `run_bdf.jl`: preferred runner for one case.
-- `run_bdf_batch.jl`: preferred runner for many cases in one warm Julia
-  session.
+- `run_bdf_batch.jl`: simple text-list batch runner retained for existing
+  scripts.
 - `run_manifest.jl`: shared manifest and environment-flag helper.
 
 Each run writes `run_manifest.json`, recording input path, script path, command

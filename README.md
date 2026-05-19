@@ -8,10 +8,11 @@ human-readable reports and optional visualization files.
 The recommended workflow is intentionally small:
 
 1. Install Julia dependencies once.
-2. Precompile with a representative SOL 105 deck.
-3. Run SOL 105 cases with Julia threads enabled.
-4. Use batch mode or the persistent worker for production work so compilation
-   is paid once.
+2. Deploy the fast runtime once with bundled or representative decks.
+3. Run single cases or batches with Julia threads enabled.
+4. For Python-driven optimization loops, keep one JSONL worker open and submit
+   batch manifests repeatedly so Julia startup and compilation are not paid per
+   iteration.
 
 ## Requirements
 
@@ -32,12 +33,20 @@ line-continuation character.
 |-- JFEM/
 |   |-- Project.toml
 |   |-- Manifest.toml
+|   |-- examples/
+|   |   `-- precompile/
+|   |-- python/
+|   |   `-- jfem_client.py
 |   |-- src/
 |   |-- POST/
 |   |   |-- postv11.html
 |   |   `-- POST_GUIDE.html
 |   `-- tools/
+|       |-- deploy_fast.jl
+|       |-- jfem_worker_jsonl.jl
+|       |-- manifest_batch_core.jl
 |       |-- precompile_sol105.jl
+|       |-- run_batch_manifest.jl
 |       |-- sol105_worker.jl
 |       `-- testing/
 |           |-- run_bdf.jl
@@ -48,15 +57,26 @@ line-continuation character.
 ```
 
 - `JFEM/src`: solver source code.
-- `JFEM/tools/precompile_sol105.jl`: one-command SOL 105 precompile setup.
-- `JFEM/tools/sol105_worker.jl`: persistent SOL 105 worker for repeated runs
-  in one warmed Julia session.
+- `JFEM/tools/deploy_fast.jl`: preferred one-command fast deployment and broad
+  precompile setup.
+- `JFEM/examples/precompile`: small bundled decks used by `deploy_fast.jl` when
+  the user does not provide representative cases.
+- `JFEM/tools/run_batch_manifest.jl`: JSON manifest batch runner for explicit
+  input/output mapping.
+- `JFEM/tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
+  optimization loops.
+- `JFEM/python/jfem_client.py`: Python 3.8+ stdlib-only helper for writing
+  manifests and talking to the JSONL worker.
+- `JFEM/tools/precompile_sol105.jl`: older focused SOL 105 precompile helper.
 - `JFEM/tools/testing/run_bdf.jl`: preferred single-case runner.
-- `JFEM/tools/testing/run_bdf_batch.jl`: preferred batch runner.
+- `JFEM/tools/testing/run_bdf_batch.jl`: simple text-list batch runner retained
+  for existing scripts. New automation should use `run_batch_manifest.jl`.
+- `JFEM/tools/sol105_worker.jl`: human-oriented persistent prompt retained for
+  interactive local studies. Python automation should use `jfem_worker_jsonl.jl`.
 - `JFEM/POST/postv11.html`: browser viewer for `.jfem` result files.
 - `general_description.md`: broader description of solver capabilities.
 
-## Installation And SOL 105 Precompile
+## Installation And Fast Deployment
 
 Clone the repository and enter it:
 
@@ -74,56 +94,65 @@ git clone <repository-url> OpenJFEM
 cd OpenJFEM
 ```
 
-Pick one representative SOL 105 deck from the same model family you expect to
-run. This one-time step precompiles the solver using that deck and the same
-fast flags used later for production runs:
-
-What this does:
-
-- Julia compiles functions when it first sees the specific data types and code
-  paths used by a run.
-- A SOL 105 buckling case exercises many solver paths: parsing, model building,
-  shell assembly, static preload, geometric stiffness assembly, eigenvalue
-  setup, and report generation.
-- The helper tells OpenJFEM to run one typical SOL 105 deck during package
-  precompilation so those hot methods are compiled before the production run.
-- The deck should be representative. A tiny or very different deck will not
-  exercise the same element, material, property, load, constraint, and buckling
-  paths as the cases you run later.
-- The step is a speed optimization only. It does not change the model, solver
-  equations, buckling load factors, or numerical results.
-
-This step is not required for correctness, but it is the fastest setup for
-repeated SOL 105 work because later single-case and batch runs start closer to
-a warmed-up Julia session.
-
-The helper below sets the required precompile environment internally and uses
-the same fast flags as the run commands.
+Run the fast deployment step once after installation or after updating the
+solver. With no user-supplied deck, OpenJFEM uses bundled tiny SOL 101, SOL 103,
+and SOL 105 decks from `JFEM/examples/precompile` to warm common parser,
+assembly, solve, and report paths:
 
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\precompile_sol105.jl C:\models\representative_sol105.bdf
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\deploy_fast.jl
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/precompile_sol105.jl /home/user/models/representative_sol105.bdf
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/deploy_fast.jl
 ```
 
-In those commands:
+For best performance on a specific model family, add one or more representative
+decks:
 
-- `.\JFEM\tools\precompile_sol105.jl` or
-  `./JFEM/tools/precompile_sol105.jl` is the setup program.
-- `C:\models\representative_sol105.bdf` or
-  `/home/user/models/representative_sol105.bdf` is the representative input
-  deck. Replace it with the path to one real SOL 105 `.bdf`, `.dat`, or `.nas`
-  file from your own model family.
-- This setup command does not create the final analysis report. It prepares
-  Julia so later SOL 105 runs start faster.
+Windows PowerShell:
 
-## Fast SOL 105 Settings
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\deploy_fast.jl --deck C:\models\representative_sol105.bdf
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/deploy_fast.jl --deck /home/user/models/representative_sol105.bdf
+```
+
+You can also precompile from a JSON batch manifest:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\deploy_fast.jl --manifest C:\models\cases.json
+```
+
+What this does:
+
+- Julia compiles functions when it first sees the specific data types and code
+  paths used by a run.
+- The bundled decks exercise common SOL 101, SOL 103, and SOL 105 paths.
+- Representative user decks exercise the exact element, material, property,
+  load, constraint, and output paths expected in production.
+- The step is a speed optimization only. It does not change the model, solver
+  equations, load factors, or numerical results.
+
+Optional sysimage build:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\deploy_fast.jl --sysimage=JFEM\build\OpenJFEM_sysimage.dll --install-packagecompiler
+```
+
+The sysimage step uses PackageCompiler if available. It can reduce startup and
+package-load time, but it is platform-specific and should be rebuilt after
+solver or dependency updates.
+
+## Fast Settings
 
 The commands below assume the precompile step above has already been run. They
 use the default fast operating profile:
@@ -134,7 +163,7 @@ use the default fast operating profile:
   throughput.
 - `JFEM_SUPPRESS_THREAD_HINT=1`: keeps batch logs compact.
 
-Use this flag string in both single-case and batch runs:
+Use this flag string in direct single-case and text-batch runs:
 
 ```text
 JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1
@@ -212,197 +241,121 @@ solver timing.
 
 ## Run a Batch of SOL 105 Cases
 
-For more than one case, use one warm Julia session with a manifest file. This
-is the preferred production path.
+For more than one case, use a JSON batch manifest. This is the preferred
+command-line batch interface because every input deck, output folder, run flag,
+and output option is explicit.
 
-Create `cases.txt`:
+In JSON files, using `/` as the path separator is valid on Windows, Linux, and
+macOS. That keeps the examples easier to read and avoids escaping every
+backslash.
 
-Windows example:
+Example `cases.json`:
 
-```text
-C:\models\panel_001.bdf
-C:\models\panel_002.bdf
-C:\models\panel_003.bdf
+```json
+{
+  "batch_id": "batch_001",
+  "output_root": "D:/jfem_runs/batch_001",
+  "defaults": {
+    "flags": {
+      "JFEM_EXPORT_BINARY": "false",
+      "JFEM_SUPPRESS_THREAD_HINT": "1"
+    },
+    "output_options": {
+      "binary": false,
+      "json": true
+    },
+    "gc_between": true,
+    "stop_on_error": false
+  },
+  "cases": [
+    {
+      "case_id": "panel_001",
+      "input": "C:/models/panel_001.bdf",
+      "output_dir": "D:/jfem_runs/batch_001/panel_001"
+    },
+    {
+      "case_id": "panel_002",
+      "input": "C:/models/panel_002.bdf",
+      "output_dir": "D:/jfem_runs/batch_001/panel_002"
+    }
+  ]
+}
 ```
 
-Linux/macOS example:
-
-```text
-/home/user/models/panel_001.bdf
-/home/user/models/panel_002.bdf
-/home/user/models/panel_003.bdf
-```
-
-Each line in `cases.txt` is one input deck. The batch runner solves every listed
-file. Do not put output folders in `cases.txt`; the batch command has one
-separate output-root argument.
-
-Run the batch:
+Run it:
 
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf_batch.jl cases.txt JFEM\output\batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\run_batch_manifest.jl C:\models\cases.json --quiet
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf_batch.jl cases.txt JFEM/output/batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/run_batch_manifest.jl /home/user/models/cases.json --quiet
 ```
 
-Read the batch command from left to right:
-
-- `.\JFEM\tools\testing\run_bdf_batch.jl` or
-  `./JFEM/tools/testing/run_bdf_batch.jl`: runs many input decks in one Julia
-  session.
-- `cases.txt`: this is the input manifest file. It contains the list of decks
-  to solve.
-- `JFEM\output\batch_sol105` or `JFEM/output/batch_sol105`: this is the batch
-  output root. OpenJFEM creates one subfolder inside it for each case.
-- `"JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"`: speed-oriented run
-  flags. Keep the quotes.
-- `--stop-on-error`: stops the batch if one case fails.
-
-The batch output root is the path after `cases.txt`. To write all case folders
-under a custom output root, change that argument:
-
-Windows PowerShell:
-
-```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf_batch.jl cases.txt D:\jfem_runs\batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
-```
-
-Linux/macOS Bash:
-
-```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf_batch.jl cases.txt /home/user/jfem_runs/batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
-```
-
-Batch outputs:
-
-Windows:
+The batch writes:
 
 ```text
-JFEM\output\batch_sol105\batch_summary.csv
-JFEM\output\batch_sol105\batch_summary.json
-JFEM\output\batch_sol105\<case_slug>\run_manifest.json
-JFEM\output\batch_sol105\<case_slug>\<case>.REPORT.md
+<output_root>/batch_summary.csv
+<output_root>/batch_summary.json
+<output_root>/<case_id>/run_manifest.json
+<output_root>/<case_id>/<input_stem>.REPORT.md
+<output_root>/<case_id>/<input_stem>.JU.JSON
+<output_root>/<case_id>/jfem_case_stdout.log
 ```
 
-Linux/macOS:
+Use JSON manifests when another program needs exact control of input paths,
+output paths, and output options. The `.JU.JSON` file is written when
+`"json": true` is present in `output_options`.
+
+## Python Optimization Loop
+
+For heavy optimization, Python should not launch Julia for every case or every
+iteration. Run Python from the repository root, or put the repository root on
+`PYTHONPATH`, then start one OpenJFEM JSONL worker, keep it warm, and send
+batch manifests repeatedly.
+
+Python example:
+
+```python
+from pathlib import Path
+from JFEM.python.jfem_client import JFEMWorker, write_batch_manifest, load_summary
+
+repo = Path(r"C:\path\to\OpenJFEM")
+
+with JFEMWorker(repo_root=repo, threads="auto") as worker:
+    for iteration in range(100):
+        output_root = repo / "JFEM" / "output" / f"opt_{iteration:04d}"
+        cases = [
+            {
+                "case_id": f"design_{iteration:04d}",
+                "input": rf"C:\opt\decks\design_{iteration:04d}.bdf",
+                "output_dir": str(output_root / f"design_{iteration:04d}"),
+            }
+        ]
+        manifest = write_batch_manifest(
+            output_root / "cases.json",
+            cases,
+            output_root,
+            batch_id=f"opt_{iteration:04d}",
+            output_options={"binary": False, "json": True},
+        )
+        response = worker.run_batch(manifest)
+        summary = load_summary(response["summary_json"])
+        # Read summary/results, update design variables, generate next decks.
+```
+
+The JSONL worker keeps stdout as protocol-only JSON. Solver output is written
+to each case's `jfem_case_stdout.log`, which makes the protocol safe for Python
+parsing.
+
+This is the fastest production automation path currently exposed by OpenJFEM:
 
 ```text
-JFEM/output/batch_sol105/batch_summary.csv
-JFEM/output/batch_sol105/batch_summary.json
-JFEM/output/batch_sol105/<case_slug>/run_manifest.json
-JFEM/output/batch_sol105/<case_slug>/<case>.REPORT.md
-```
-
-For example, if `cases.txt` contains `C:\models\panel_001.bdf`, the batch
-runner creates a case folder under the output root and writes a report named
-`panel_001.REPORT.md` inside that case folder. The two summary files,
-`batch_summary.csv` and `batch_summary.json`, summarize the whole batch.
-
-## Keep a Persistent SOL 105 Worker Open
-
-Use the persistent worker when you want to run separate cases or separate
-batches without restarting Julia each time. This is useful during repeated
-engineering studies because OpenJFEM stays loaded, compiled methods stay warm,
-and every command is submitted to the same Julia process.
-
-Start the worker once:
-
-Windows PowerShell:
-
-```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\sol105_worker.jl
-```
-
-Linux/macOS Bash:
-
-```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/sol105_worker.jl
-```
-
-No flag string is needed in the command above. The worker uses the default fast
-SOL 105 flags:
-
-```text
-JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1
-```
-
-After the worker starts, it prints a `jfem>` prompt. Type one command per line.
-The vertical bar character `|` separates the input path from the output path.
-The `|` is only a separator; it is not part of either file path.
-
-Windows worker commands:
-
-```text
-run C:\models\panel_001.bdf | D:\jfem_runs\panel_001
-batch C:\models\cases.txt | D:\jfem_runs\batch_sol105 | --stop-on-error
-status
-quit
-```
-
-Linux/macOS worker commands:
-
-```text
-run /home/user/models/panel_001.bdf | /home/user/jfem_runs/panel_001
-batch /home/user/models/cases.txt | /home/user/jfem_runs/batch_sol105 | --stop-on-error
-status
-quit
-```
-
-Read the worker commands as follows:
-
-- `run C:\models\panel_001.bdf | D:\jfem_runs\panel_001`: the path before `|`
-  is the input deck. The path after `|` is the output folder for that one case.
-- `batch C:\models\cases.txt | D:\jfem_runs\batch_sol105 | --stop-on-error`:
-  the first path is the batch manifest. The second path is the batch output
-  root. The final field is optional batch behavior.
-- `status`: prints the worker session id, process id, Julia thread count, active
-  flags, completed case count, and failed case count.
-- `quit`: closes only this worker process.
-
-Worker outputs are the same as the single-case and batch runners. A `run`
-command writes `run_manifest.json` and `<case>.REPORT.md` in the case output
-folder. A `batch` command writes one case folder per input deck plus
-`batch_summary.csv` and `batch_summary.json` in the batch output root.
-
-You can also feed commands from a text file. For example, create
-`worker_commands.txt`:
-
-Windows example:
-
-```text
-run C:\models\panel_001.bdf | D:\jfem_runs\panel_001
-run C:\models\panel_002.bdf | D:\jfem_runs\panel_002
-batch C:\models\cases.txt | D:\jfem_runs\batch_sol105 | --stop-on-error
-quit
-```
-
-Linux/macOS example:
-
-```text
-run /home/user/models/panel_001.bdf | /home/user/jfem_runs/panel_001
-run /home/user/models/panel_002.bdf | /home/user/jfem_runs/panel_002
-batch /home/user/models/cases.txt | /home/user/jfem_runs/batch_sol105 | --stop-on-error
-quit
-```
-
-Then start the worker with the command file as standard input:
-
-Windows PowerShell:
-
-```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\sol105_worker.jl < worker_commands.txt
-```
-
-Linux/macOS Bash:
-
-```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/sol105_worker.jl < worker_commands.txt
+deploy once -> start JSONL worker once -> Python sends many manifests -> Python reads summaries/results
 ```
 
 ## Post-Processing
@@ -465,5 +418,6 @@ the HTML post-processing viewer. Generated solver products are ignored:
 - `JFEM/output/`
 - solver run products such as `.f04`, `.f06`, `.log`, `.op2`, `.pch`, and
   `.xdb`
-- OpenJFEM binary or visualization outputs such as `.jfem`, `.h5`, and `.vtk`
+- OpenJFEM reports and result exports such as `.REPORT.md`, `.JU.JSON`,
+  `.jfem`, `.h5`, and `.vtk`
 - Julia caches and local temporary files

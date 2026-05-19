@@ -34,6 +34,12 @@ JFEM/tmp_*
 *.vtu
 *.vtp
 *.jfem
+*.JU.JSON
+*.REPORT.md
+run_manifest.json
+batch_summary.csv
+batch_summary.json
+jfem_case_stdout.log
 *.comparison_summary.json
 *.plt
 *.jls
