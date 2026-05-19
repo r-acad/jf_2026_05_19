@@ -1,0 +1,23 @@
+{
+  "batch_id": "example_sol105_manifest",
+  "output_root": "../../output/example_sol105_manifest",
+  "defaults": {
+    "flags": {
+      "JFEM_EXPORT_BINARY": "false",
+      "JFEM_SUPPRESS_THREAD_HINT": "1"
+    },
+    "output_options": {
+      "binary": false,
+      "json": true
+    },
+    "gc_between": true,
+    "stop_on_error": false
+  },
+  "cases": [
+    {
+      "case_id": "bundled_sol105_quad_buckling",
+      "input": "../precompile/sol105_quad_buckling.bdf",
+      "output_dir": "../../output/example_sol105_manifest/bundled_sol105_quad_buckling"
+    }
+  ]
+}

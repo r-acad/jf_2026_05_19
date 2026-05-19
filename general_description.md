@@ -157,6 +157,8 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
   compilation.
 - JSON manifest batch execution with explicit per-case input and output paths.
 - A JSONL persistent worker for Python-driven optimization loops.
+- A Python manifest CLI for creating production manifests from generated or
+  existing decks.
 - Optional PackageCompiler sysimage creation from the deployment helper when
   PackageCompiler is available.
 - Optional suppression of `.jfem` binary export for timing-sensitive runs.
@@ -165,11 +167,12 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 For production SOL 105 work, the recommended path is:
 
 1. Run `JFEM/tools/deploy_fast.jl` once with bundled or representative decks.
-2. Run command-line single cases with `run_bdf.jl` and command-line batches
+2. Use JSON manifests as the first production automation contract.
+3. Run command-line single cases with `run_bdf.jl` and command-line batches
    with `run_batch_manifest.jl`.
-3. For optimization loops, start `JFEM/tools/jfem_worker_jsonl.jl` once and
+4. For optimization loops, start `JFEM/tools/jfem_worker_jsonl.jl` once and
    submit JSON manifests from Python using `JFEM/python/jfem_client.py`.
-4. Disable `.jfem` export unless interactive visualization is required.
+5. Disable `.jfem` export unless interactive visualization is required.
 
 ## Optimization And Sensitivity Analysis
 
@@ -226,6 +229,8 @@ The public command-line runner scripts are:
   optimization loops.
 - `JFEM/python/jfem_client.py`: Python 3.8+ stdlib-only helper for writing
   batch manifests and controlling the JSONL worker.
+- `JFEM/python/jfem_manifest_cli.py`: Python command-line helper for creating
+  manifests and launching manifest-based runs from external workflows.
 - `precompile_sol105.jl`: focused legacy helper for representative SOL 105
   precompile setup.
 - `run_bdf.jl`: preferred runner for one case.

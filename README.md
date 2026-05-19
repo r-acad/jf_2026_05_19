@@ -34,9 +34,11 @@ line-continuation character.
 |   |-- Project.toml
 |   |-- Manifest.toml
 |   |-- examples/
+|   |   |-- manifests/
 |   |   `-- precompile/
 |   |-- python/
-|   |   `-- jfem_client.py
+|   |   |-- jfem_client.py
+|   |   `-- jfem_manifest_cli.py
 |   |-- src/
 |   |-- POST/
 |   |   |-- postv11.html
@@ -61,12 +63,15 @@ line-continuation character.
   precompile setup.
 - `JFEM/examples/precompile`: small bundled decks used by `deploy_fast.jl` when
   the user does not provide representative cases.
+- `JFEM/examples/manifests`: runnable JSON manifest examples.
 - `JFEM/tools/run_batch_manifest.jl`: JSON manifest batch runner for explicit
   input/output mapping.
 - `JFEM/tools/jfem_worker_jsonl.jl`: persistent JSONL worker for Python-driven
   optimization loops.
 - `JFEM/python/jfem_client.py`: Python 3.8+ stdlib-only helper for writing
   manifests and talking to the JSONL worker.
+- `JFEM/python/jfem_manifest_cli.py`: Python command-line helper for creating
+  and running manifests from external workflows.
 - `JFEM/tools/precompile_sol105.jl`: older focused SOL 105 precompile helper.
 - `JFEM/tools/testing/run_bdf.jl`: preferred single-case runner.
 - `JFEM/tools/testing/run_bdf_batch.jl`: simple text-list batch runner retained
@@ -239,6 +244,72 @@ It is named from the input file stem: `panel_001.bdf` becomes
 The report contains the buckling load factors, model counts, active flags, and
 solver timing.
 
+## First Production Interface: JSON Manifests
+
+The first production automation interface is manifest-based. A manifest is a
+small JSON file that describes the run before Julia starts solving anything.
+It is robust because the external workflow does not depend on shell quoting,
+current working directory assumptions, or positional command arguments for
+every case.
+
+The same manifest can be used by:
+
+- a command-line batch run;
+- a Python optimization loop;
+- a job scheduler;
+- a future faster worker or sysimage-based deployment.
+
+Required manifest fields:
+
+| Field | Meaning |
+|---|---|
+| `output_root` | batch-level output folder where summaries are written |
+| `cases` | list of cases to solve |
+| `cases[].input` | input `.bdf`, `.dat`, or `.nas` deck |
+
+Recommended manifest fields:
+
+| Field | Meaning |
+|---|---|
+| `batch_id` | readable name for the batch |
+| `defaults.flags` | default `JFEM_*` run flags for all cases |
+| `defaults.output_options` | result formats to write |
+| `defaults.gc_between` | run garbage collection between cases |
+| `defaults.stop_on_error` | stop the batch at the first failed case |
+| `cases[].case_id` | stable case name used in summaries |
+| `cases[].output_dir` | exact output folder for that case |
+
+You can write the JSON file yourself, or generate it from existing decks with
+the included Python helper.
+
+Create a manifest from one directory of decks:
+
+Windows PowerShell:
+
+```powershell
+python .\JFEM\python\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --batch-id batch_001
+```
+
+Linux/macOS Bash:
+
+```bash
+python ./JFEM/python/jfem_manifest_cli.py make --input-dir /home/user/models --manifest /home/user/models/cases.json --output-root /home/user/jfem_runs/batch_001 --batch-id batch_001
+```
+
+Create a manifest from specific decks:
+
+Windows PowerShell:
+
+```powershell
+python .\JFEM\python\jfem_manifest_cli.py make --input C:\models\panel_001.bdf --input C:\models\panel_002.bdf --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --batch-id batch_001
+```
+
+Linux/macOS Bash:
+
+```bash
+python ./JFEM/python/jfem_manifest_cli.py make --input /home/user/models/panel_001.bdf --input /home/user/models/panel_002.bdf --manifest /home/user/models/cases.json --output-root /home/user/jfem_runs/batch_001 --batch-id batch_001
+```
+
 ## Run a Batch of SOL 105 Cases
 
 For more than one case, use a JSON batch manifest. This is the preferred
@@ -294,6 +365,20 @@ Linux/macOS Bash:
 
 ```bash
 julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/run_batch_manifest.jl /home/user/models/cases.json --quiet
+```
+
+Run the included manifest example:
+
+Windows PowerShell:
+
+```powershell
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\run_batch_manifest.jl .\JFEM\examples\manifests\sol105_batch_manifest.json --quiet
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/run_batch_manifest.jl ./JFEM/examples/manifests/sol105_batch_manifest.json --quiet
 ```
 
 The batch writes:
@@ -357,6 +442,23 @@ This is the fastest production automation path currently exposed by OpenJFEM:
 ```text
 deploy once -> start JSONL worker once -> Python sends many manifests -> Python reads summaries/results
 ```
+
+For a simple one-manifest Python-triggered production run, use:
+
+Windows PowerShell:
+
+```powershell
+python .\JFEM\python\jfem_manifest_cli.py run-worker C:\models\cases.json --repo-root .
+```
+
+Linux/macOS Bash:
+
+```bash
+python ./JFEM/python/jfem_manifest_cli.py run-worker /home/user/models/cases.json --repo-root .
+```
+
+For heavy optimization, prefer the `JFEMWorker` example above so the same Julia
+worker remains open across many design iterations.
 
 ## Post-Processing
 
