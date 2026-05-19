@@ -33,6 +33,7 @@ Run all commands from the repository root.
 |   |   |-- postv11.html
 |   |   `-- POST_GUIDE.html
 |   `-- tools/
+|       |-- precompile_sol105.jl
 |       `-- testing/
 |           |-- run_bdf.jl
 |           |-- run_bdf_batch.jl
@@ -42,6 +43,7 @@ Run all commands from the repository root.
 ```
 
 - `JFEM/src`: solver source code.
+- `JFEM/tools/precompile_sol105.jl`: one-command SOL 105 precompile setup.
 - `JFEM/tools/testing/run_bdf.jl`: preferred single-case runner.
 - `JFEM/tools/testing/run_bdf_batch.jl`: preferred batch runner.
 - `JFEM/POST/postv11.html`: browser viewer for `.jfem` result files.
@@ -67,9 +69,8 @@ What this does:
 - A SOL 105 buckling case exercises many solver paths: parsing, model building,
   shell assembly, static preload, geometric stiffness assembly, eigenvalue
   setup, and report generation.
-- `JFEM_SOL105_PRECOMPILE_BDF` tells OpenJFEM to run one typical SOL 105 deck
-  during package precompilation so those hot methods are compiled before the
-  production run.
+- The helper tells OpenJFEM to run one typical SOL 105 deck during package
+  precompilation so those hot methods are compiled before the production run.
 - The deck should be representative. A tiny or very different deck will not
   exercise the same element, material, property, load, constraint, and buckling
   paths as the cases you run later.
@@ -80,18 +81,12 @@ This step is not required for correctness, but it is the fastest setup for
 repeated SOL 105 work because later single-case and batch runs start closer to
 a warmed-up Julia session.
 
+The helper below sets the required precompile environment internally and uses
+the same fast flags as the run commands.
+
 ```powershell
-$env:JFEM_SOL105_PRECOMPILE_WORKLOAD = "true"
-$env:JFEM_SOL105_PRECOMPILE_BDF = (Resolve-Path path\to\representative_sol105.bdf).Path
-$env:JFEM_SOL105_PRECOMPILE_FLAGS = "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
-$env:JFEM_SUPPRESS_THREAD_HINT = "1"
-
-julia --threads=auto --startup-file=no --project=JFEM -e "import Pkg; Pkg.instantiate(); Pkg.precompile(); using OpenJFEM; println(\"OpenJFEM ready\")"
-
-Remove-Item Env:\JFEM_SOL105_PRECOMPILE_WORKLOAD
-Remove-Item Env:\JFEM_SOL105_PRECOMPILE_BDF
-Remove-Item Env:\JFEM_SOL105_PRECOMPILE_FLAGS
-Remove-Item Env:\JFEM_SUPPRESS_THREAD_HINT
+julia --threads=auto --startup-file=no --project=JFEM JFEM/tools/precompile_sol105.jl `
+  path\to\representative_sol105.bdf
 ```
 
 ## Fast SOL 105 Settings

@@ -151,7 +151,8 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - Threaded shell stiffness and geometric-stiffness assembly.
 - A lean solver bootstrap path for solver-only workflows.
 - A full package precompile path using `PrecompileTools`.
-- Optional SOL 105 precompile workload driven by a representative user deck.
+- One-command SOL 105 precompile setup with `JFEM/tools/precompile_sol105.jl`,
+  driven by a representative user deck.
 - Batch execution in one Julia process to avoid repeated startup and method
   compilation.
 - Optional suppression of `.jfem` binary export for timing-sensitive runs.
@@ -159,7 +160,8 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 
 For production SOL 105 work, the recommended path is:
 
-1. Precompile with a representative SOL 105 deck.
+1. Precompile with a representative SOL 105 deck using
+   `JFEM/tools/precompile_sol105.jl`.
 2. Run a manifest-based batch with `run_bdf_batch.jl`.
 3. Disable `.jfem` export unless interactive visualization is required.
 
@@ -212,6 +214,8 @@ side-by-side model inspection.
 
 The public command-line runner scripts are:
 
+- `precompile_sol105.jl`: one-command setup for the representative SOL 105
+  precompile workflow.
 - `run_bdf.jl`: preferred runner for one case.
 - `run_bdf_batch.jl`: preferred runner for many cases in one warm Julia
   session.
