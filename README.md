@@ -108,6 +108,17 @@ Linux/macOS Bash:
 julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/precompile_sol105.jl /home/user/models/representative_sol105.bdf
 ```
 
+In those commands:
+
+- `.\JFEM\tools\precompile_sol105.jl` or
+  `./JFEM/tools/precompile_sol105.jl` is the setup program.
+- `C:\models\representative_sol105.bdf` or
+  `/home/user/models/representative_sol105.bdf` is the representative input
+  deck. Replace it with the path to one real SOL 105 `.bdf`, `.dat`, or `.nas`
+  file from your own model family.
+- This setup command does not create the final analysis report. It prepares
+  Julia so later SOL 105 runs start faster.
+
 ## Fast SOL 105 Settings
 
 The commands below assume the precompile step above has already been run. They
@@ -141,6 +152,22 @@ Linux/macOS Bash:
 julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf JFEM/output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
+Read the command from left to right:
+
+- `julia`: starts Julia.
+- `--threads=auto`: lets Julia use available CPU threads.
+- `--startup-file=no`: ignores any local Julia startup script.
+- `--project=.\JFEM` or `--project=./JFEM`: selects the OpenJFEM Julia
+  environment.
+- `.\JFEM\tools\testing\run_bdf.jl` or
+  `./JFEM/tools/testing/run_bdf.jl`: runs one input deck.
+- `C:\models\panel_001.bdf` or `/home/user/models/panel_001.bdf`: this is the
+  input file to solve. Replace it with your SOL 105 deck.
+- `JFEM\output\panel_001` or `JFEM/output/panel_001`: this is the output folder
+  created by OpenJFEM for this run.
+- `"JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"`: speed-oriented run
+  flags. Keep the quotes.
+
 The output folder is the second path after the input deck. To write results to
 a custom folder, change that argument:
 
@@ -172,6 +199,10 @@ JFEM/output/panel_001/run_manifest.json
 JFEM/output/panel_001/panel_001.REPORT.md
 ```
 
+For the example above, `panel_001.REPORT.md` is the main result file to open.
+It is named from the input file stem: `panel_001.bdf` becomes
+`panel_001.REPORT.md`.
+
 The report contains the buckling load factors, model counts, active flags, and
 solver timing.
 
@@ -198,6 +229,10 @@ Linux/macOS example:
 /home/user/models/panel_003.bdf
 ```
 
+Each line in `cases.txt` is one input deck. The batch runner solves every listed
+file. Do not put output folders in `cases.txt`; the batch command has one
+separate output-root argument.
+
 Run the batch:
 
 Windows PowerShell:
@@ -211,6 +246,19 @@ Linux/macOS Bash:
 ```bash
 julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf_batch.jl cases.txt JFEM/output/batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
 ```
+
+Read the batch command from left to right:
+
+- `.\JFEM\tools\testing\run_bdf_batch.jl` or
+  `./JFEM/tools/testing/run_bdf_batch.jl`: runs many input decks in one Julia
+  session.
+- `cases.txt`: this is the input manifest file. It contains the list of decks
+  to solve.
+- `JFEM\output\batch_sol105` or `JFEM/output/batch_sol105`: this is the batch
+  output root. OpenJFEM creates one subfolder inside it for each case.
+- `"JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"`: speed-oriented run
+  flags. Keep the quotes.
+- `--stop-on-error`: stops the batch if one case fails.
 
 The batch output root is the path after `cases.txt`. To write all case folders
 under a custom output root, change that argument:
@@ -246,6 +294,11 @@ JFEM/output/batch_sol105/batch_summary.json
 JFEM/output/batch_sol105/<case_slug>/run_manifest.json
 JFEM/output/batch_sol105/<case_slug>/<case>.REPORT.md
 ```
+
+For example, if `cases.txt` contains `C:\models\panel_001.bdf`, the batch
+runner creates a case folder under the output root and writes a report named
+`panel_001.REPORT.md` inside that case folder. The two summary files,
+`batch_summary.csv` and `batch_summary.json`, summarize the whole batch.
 
 ## Post-Processing
 
