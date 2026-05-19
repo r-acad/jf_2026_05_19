@@ -19,7 +19,10 @@ The recommended workflow is intentionally small:
 - One or more bulk-data input decks, usually with `.bdf`, `.dat`, or `.nas`
   extension
 
-Run all commands from the repository root.
+Run all commands from the repository root. The repository tree below uses `/`
+as a visual convention. Command examples are written separately for Windows
+PowerShell and Linux/macOS Bash, and each command is a single line with no
+line-continuation character.
 
 ## Repository Layout
 
@@ -53,7 +56,16 @@ Run all commands from the repository root.
 
 Clone the repository and enter it:
 
+Windows PowerShell:
+
 ```powershell
+git clone <repository-url> OpenJFEM
+cd OpenJFEM
+```
+
+Linux/macOS Bash:
+
+```bash
 git clone <repository-url> OpenJFEM
 cd OpenJFEM
 ```
@@ -84,9 +96,16 @@ a warmed-up Julia session.
 The helper below sets the required precompile environment internally and uses
 the same fast flags as the run commands.
 
+Windows PowerShell:
+
 ```powershell
-julia --threads=auto --startup-file=no --project=JFEM JFEM/tools/precompile_sol105.jl `
-  path\to\representative_sol105.bdf
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\precompile_sol105.jl C:\models\representative_sol105.bdf
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/precompile_sol105.jl /home/user/models/representative_sol105.bdf
 ```
 
 ## Fast SOL 105 Settings
@@ -110,18 +129,32 @@ JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1
 
 Use this command for a single buckling deck:
 
+Windows PowerShell:
+
 ```powershell
-julia --threads=auto --startup-file=no --project=JFEM JFEM/tools/testing/run_bdf.jl `
-  path\to\case.bdf `
-  JFEM/output/case `
-  "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf.jl C:\models\panel_001.bdf JFEM\output\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf JFEM/output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Outputs are written under the output directory:
 
+Windows:
+
 ```text
-JFEM/output/case/run_manifest.json
-JFEM/output/case/<case>.REPORT.md
+JFEM\output\panel_001\run_manifest.json
+JFEM\output\panel_001\panel_001.REPORT.md
+```
+
+Linux/macOS:
+
+```text
+JFEM/output/panel_001/run_manifest.json
+JFEM/output/panel_001/panel_001.REPORT.md
 ```
 
 The report contains the buckling load factors, model counts, active flags, and
@@ -134,23 +167,48 @@ is the preferred production path.
 
 Create `cases.txt`:
 
+Windows example:
+
 ```text
 C:\models\panel_001.bdf
 C:\models\panel_002.bdf
 C:\models\panel_003.bdf
 ```
 
+Linux/macOS example:
+
+```text
+/home/user/models/panel_001.bdf
+/home/user/models/panel_002.bdf
+/home/user/models/panel_003.bdf
+```
+
 Run the batch:
 
+Windows PowerShell:
+
 ```powershell
-julia --threads=auto --startup-file=no --project=JFEM JFEM/tools/testing/run_bdf_batch.jl `
-  cases.txt `
-  JFEM/output/batch_sol105 `
-  "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" `
-  --stop-on-error
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf_batch.jl cases.txt JFEM\output\batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
+```
+
+Linux/macOS Bash:
+
+```bash
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf_batch.jl cases.txt JFEM/output/batch_sol105 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1" --stop-on-error
 ```
 
 Batch outputs:
+
+Windows:
+
+```text
+JFEM\output\batch_sol105\batch_summary.csv
+JFEM\output\batch_sol105\batch_summary.json
+JFEM\output\batch_sol105\<case_slug>\run_manifest.json
+JFEM\output\batch_sol105\<case_slug>\<case>.REPORT.md
+```
+
+Linux/macOS:
 
 ```text
 JFEM/output/batch_sol105/batch_summary.csv
@@ -191,7 +249,8 @@ Package cannot be found:
 ERROR: ArgumentError: Package OpenJFEM not found
 ```
 
-Run the command from the repository root with `--project=JFEM`.
+Run the command from the repository root with `--project=.\JFEM` on Windows or
+`--project=./JFEM` on Linux/macOS.
 
 First run is slower than later runs:
 
