@@ -166,12 +166,18 @@ use the default fast operating profile:
 - `--startup-file=no`: avoids user startup files changing the run.
 - `JFEM_EXPORT_BINARY=false`: skips `.jfem` binary export for maximum solve
   throughput.
+- `JFEM_MATRIX_ASYMMETRY_CHECK=false`: skips an expensive buckling diagnostic
+  matrix difference in production runs. The stiffness pair is still
+  symmetrized before the eigenproblem.
+- `JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false`: skips the duplicate in-memory
+  `mode_shapes` list in the returned Julia dictionary. Report and JSON/VTK/HDF5
+  exports still use the raw mode matrix.
 - `JFEM_SUPPRESS_THREAD_HINT=1`: keeps batch logs compact.
 
 Use this flag string in direct single-case and text-batch runs:
 
 ```text
-JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1
+JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1
 ```
 
 ## Run One SOL 105 Case
@@ -181,13 +187,13 @@ Use this command for a single buckling deck:
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf.jl C:\models\panel_001.bdf JFEM\output\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf.jl C:\models\panel_001.bdf JFEM\output\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf JFEM/output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf JFEM/output/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Read the command from left to right:
@@ -203,8 +209,7 @@ Read the command from left to right:
   input file to solve. Replace it with your SOL 105 deck.
 - `JFEM\output\panel_001` or `JFEM/output/panel_001`: this is the output folder
   created by OpenJFEM for this run.
-- `"JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"`: speed-oriented run
-  flags. Keep the quotes.
+- the quoted `JFEM_...` string: speed-oriented run flags. Keep the quotes.
 
 The output folder is the second path after the input deck. To write results to
 a custom folder, change that argument:
@@ -212,13 +217,13 @@ a custom folder, change that argument:
 Windows PowerShell:
 
 ```powershell
-julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf.jl C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=.\JFEM .\JFEM\tools\testing\run_bdf.jl C:\models\panel_001.bdf D:\jfem_runs\panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Linux/macOS Bash:
 
 ```bash
-julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+julia --threads=auto --startup-file=no --project=./JFEM ./JFEM/tools/testing/run_bdf.jl /home/user/models/panel_001.bdf /home/user/jfem_runs/panel_001 "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 ```
 
 Outputs are written under the output directory:

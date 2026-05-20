@@ -161,6 +161,11 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
   existing decks.
 - A SOL 105 preload path that solves only for the static displacement state
   needed by geometric stiffness, avoiding unused static result recovery.
+- Production fast flags that skip development-only buckling matrix-asymmetry
+  diagnostics and the duplicate public `mode_shapes` list while keeping raw
+  mode data available for reports and exports.
+- Allocation-reduced node force transforms and modal post-processing loops for
+  repeated buckling and modal runs.
 - Optional PackageCompiler sysimage creation from the deployment helper when
   PackageCompiler is available.
 - Optional suppression of `.jfem` binary export for timing-sensitive runs.

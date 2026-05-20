@@ -9,7 +9,7 @@ Usage:
   julia --threads=auto --startup-file=no --project=JFEM JFEM/tools/sol105_worker.jl [FLAG=val,FLAG2=val2]
 
 Default flags:
-  JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1
+  JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1
 
 Worker commands:
   run <deck> | <output_dir>
@@ -34,7 +34,7 @@ using Dates
 using JSON
 using Printf
 
-const DEFAULT_FLAGS = "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+const DEFAULT_FLAGS = "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 const FLAGS_RAW = length(ARGS) == 1 ? strip(ARGS[1]) : DEFAULT_FLAGS
 const APPLIED_FLAGS = apply_jfem_flags!(FLAGS_RAW)
 

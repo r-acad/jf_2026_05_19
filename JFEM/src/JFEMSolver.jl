@@ -1541,7 +1541,8 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     end
     println(">>> ============================================")
 
-    mode_shapes_out = _mode_shapes_to_list(mode_shapes, id_map)
+    store_public_mode_shapes = Solver.solver_env_bool("JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES", true)
+    mode_shapes_out = store_public_mode_shapes ? _mode_shapes_to_list(mode_shapes, id_map) : []
 
     return Dict(
         "sol_type" => 105,
@@ -1568,6 +1569,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "eigen_solve_cache_enabled" => eigen_solve_cache !== nothing,
             "eigen_seeded_from_static_linear_cache" => sol105_eigen_seeded_from_static,
             "static_full_recovery" => sol105_static_full_recovery,
+            "public_mode_shapes_stored" => store_public_mode_shapes,
         ),
         "timings" => Dict{String,Any}(
             "sol105_static_reference_solve" => sol105_static_wall_seconds,
@@ -1634,18 +1636,20 @@ end
 function _mode_shapes_to_list(mode_shapes, id_map)
     if size(mode_shapes, 2) == 0; return []; end
     sorted_nodes = sort(collect(keys(id_map)))
-    modes = []
-    for m in 1:size(mode_shapes, 2)
-        mode_data = []
-        for nid in sorted_nodes
+    n_nodes = length(sorted_nodes)
+    n_modes = size(mode_shapes, 2)
+    modes = Vector{Any}(undef, n_modes)
+    for m in 1:n_modes
+        mode_data = Vector{Any}(undef, n_nodes)
+        for (node_pos, nid) in enumerate(sorted_nodes)
             idx = id_map[nid]; base = (idx-1)*6
-            push!(mode_data, Dict(
+            mode_data[node_pos] = Dict(
                 "grid_id" => nid,
                 "t1" => mode_shapes[base+1, m], "t2" => mode_shapes[base+2, m], "t3" => mode_shapes[base+3, m],
                 "r1" => mode_shapes[base+4, m], "r2" => mode_shapes[base+5, m], "r3" => mode_shapes[base+6, m],
-            ))
+            )
         end
-        push!(modes, mode_data)
+        modes[m] = mode_data
     end
     return modes
 end

@@ -4,11 +4,11 @@
 #   julia --threads=auto --startup-file=no --project=JFEM JFEM/tools/precompile_sol105.jl path/to/representative_sol105.bdf
 #
 # Optional second argument:
-#   "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+#   "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 
 using Pkg
 
-const DEFAULT_FLAGS = "JFEM_EXPORT_BINARY=false,JFEM_SUPPRESS_THREAD_HINT=1"
+const DEFAULT_FLAGS = "JFEM_EXPORT_BINARY=false,JFEM_MATRIX_ASYMMETRY_CHECK=false,JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES=false,JFEM_SUPPRESS_THREAD_HINT=1"
 
 function _usage()
     return """

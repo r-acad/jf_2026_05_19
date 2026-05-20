@@ -9,6 +9,8 @@ using Printf
 
 const MANIFEST_FAST_DEFAULT_FLAGS = Dict{String,String}(
     "JFEM_EXPORT_BINARY" => "false",
+    "JFEM_MATRIX_ASYMMETRY_CHECK" => "false",
+    "JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES" => "false",
     "JFEM_SUPPRESS_THREAD_HINT" => "1",
 )
 

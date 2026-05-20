@@ -21,20 +21,12 @@ function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_m
             end
         end
         resolve_thermal_loads(model, temp_load_id, load_scale, id_map, elem_map, X, F_global_accum; node_R=node_R)
-        for i in 1:length(id_map)
-            idx = (i-1)*6
-            F_applied[idx+1:idx+3] = node_R[i]' * view(F_global_accum, idx+1:idx+3)
-            F_applied[idx+4:idx+6] = node_R[i]' * view(F_global_accum, idx+4:idx+6)
-        end
+        _rotate_global_force_to_analysis!(F_applied, F_global_accum, node_R, length(id_map))
     elseif !isnothing(temp_load_id)
         elem_map = Dict{Int, Any}()
         F_global_accum = zeros(ndof)
         resolve_thermal_loads(model, temp_load_id, load_scale, id_map, elem_map, X, F_global_accum; node_R=node_R)
-        for i in 1:length(id_map)
-            idx = (i-1)*6
-            F_applied[idx+1:idx+3] = node_R[i]' * view(F_global_accum, idx+1:idx+3)
-            F_applied[idx+4:idx+6] = node_R[i]' * view(F_global_accum, idx+4:idx+6)
-        end
+        _rotate_global_force_to_analysis!(F_applied, F_global_accum, node_R, length(id_map))
     end
 
     if !isempty(rbe3_map)
@@ -54,6 +46,46 @@ function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_m
         end
     end
     return F_applied
+end
+
+function _rotate_global_force_to_analysis!(F_applied, F_global_accum, node_R, n_nodes::Int)
+    @inbounds for i in 1:n_nodes
+        idx = (i - 1) * 6
+        R = node_R[i]
+
+        f1 = F_global_accum[idx + 1]
+        f2 = F_global_accum[idx + 2]
+        f3 = F_global_accum[idx + 3]
+        F_applied[idx + 1] = R[1, 1] * f1 + R[2, 1] * f2 + R[3, 1] * f3
+        F_applied[idx + 2] = R[1, 2] * f1 + R[2, 2] * f2 + R[3, 2] * f3
+        F_applied[idx + 3] = R[1, 3] * f1 + R[2, 3] * f2 + R[3, 3] * f3
+
+        m1 = F_global_accum[idx + 4]
+        m2 = F_global_accum[idx + 5]
+        m3 = F_global_accum[idx + 6]
+        F_applied[idx + 4] = R[1, 1] * m1 + R[2, 1] * m2 + R[3, 1] * m3
+        F_applied[idx + 5] = R[1, 2] * m1 + R[2, 2] * m2 + R[3, 2] * m3
+        F_applied[idx + 6] = R[1, 3] * m1 + R[2, 3] * m2 + R[3, 3] * m3
+    end
+    return F_applied
+end
+
+@inline function _matrix_column_max_abs(A::AbstractMatrix, col::Int)
+    max_val = 0.0
+    @inbounds for row in axes(A, 1)
+        v = abs(A[row, col])
+        if v > max_val
+            max_val = v
+        end
+    end
+    return max_val
+end
+
+function _scale_matrix_column!(A::AbstractMatrix, col::Int, scale::Float64)
+    @inbounds for row in axes(A, 1)
+        A[row, col] *= scale
+    end
+    return A
 end
 
 function _deterministic_buckling_start_vector(n::Int, ordinal::Int)
@@ -1939,19 +1971,30 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     buckling_timings["slice_free_matrices"] = (time_ns() - t_slice) * 1e-9
 
     t_symmetry = time_ns()
-    Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
     # K_ff is symmetrized once when the eigen solve context is prepared/cached.
-    # Only Kg changes per buckling subcase, so keep the per-subcase symmetry work
-    # focused there.
-    K_asym_rel = 0.0
-    Kg_asym_rel = norm(Kg_ff - Kg_ff', Inf) / Kg_norm_inf
-    diagnostics["matrix_asymmetry"] = Dict(
-        "K_inf_rel" => K_asym_rel,
-        "Kg_inf_rel" => Kg_asym_rel,
-    )
-    asym_warn_rel = solver_env_float("JFEM_MATRIX_ASYMMETRY_WARN_REL", 1e-10)
-    if K_asym_rel > asym_warn_rel || Kg_asym_rel > asym_warn_rel
-        log_msg("[BUCKLING] Matrix asymmetry before symmetrization: K=$(K_asym_rel), Kg=$(Kg_asym_rel)")
+    # Only Kg changes per buckling subcase. The asymmetry diagnostic is useful
+    # while developing new operators, but it builds another sparse matrix, so
+    # production batch runs can disable it without changing the solved matrix.
+    asymmetry_check = solver_env_bool("JFEM_MATRIX_ASYMMETRY_CHECK", true)
+    if asymmetry_check
+        Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
+        K_asym_rel = 0.0
+        Kg_asym_rel = norm(Kg_ff - Kg_ff', Inf) / Kg_norm_inf
+        diagnostics["matrix_asymmetry"] = Dict(
+            "checked" => true,
+            "K_inf_rel" => K_asym_rel,
+            "Kg_inf_rel" => Kg_asym_rel,
+        )
+        asym_warn_rel = solver_env_float("JFEM_MATRIX_ASYMMETRY_WARN_REL", 1e-10)
+        if K_asym_rel > asym_warn_rel || Kg_asym_rel > asym_warn_rel
+            log_msg("[BUCKLING] Matrix asymmetry before symmetrization: K=$(K_asym_rel), Kg=$(Kg_asym_rel)")
+        end
+    else
+        diagnostics["matrix_asymmetry"] = Dict(
+            "checked" => false,
+            "K_inf_rel" => nothing,
+            "Kg_inf_rel" => nothing,
+        )
     end
 
     # Symmetrize after recording diagnostics; the generalized buckling solver
@@ -3179,7 +3222,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     t_expand_modes = time_ns()
     mode_shapes = zeros(ndof, n_out)
     for m in 1:n_out
-        mode_shapes[free_dofs, m] = final_eigenvectors[:, m]
+        @inbounds for (row, dof) in pairs(free_dofs)
+            mode_shapes[dof, m] = final_eigenvectors[row, m]
+        end
     end
 
     # Recover RBE3 dependent DOFs
@@ -3195,9 +3240,8 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
     # Transform mode shapes to global coordinates via node_R
     mode_shapes_global = zeros(ndof, n_out)
-    sorted_nodes = sort(collect(keys(id_map)))
-    for nid in sorted_nodes
-        idx = id_map[nid]; base = (idx-1)*6
+    for idx in values(id_map)
+        base = (idx-1)*6
         R = node_R[idx]
         for m in 1:n_out
             u1 = mode_shapes[base + 1, m]
@@ -3217,9 +3261,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
     # Normalize mode shapes (max component = 1.0)
     for m in 1:n_out
-        max_val = maximum(abs.(mode_shapes_global[:, m]))
+        max_val = _matrix_column_max_abs(mode_shapes_global, m)
         if max_val > 1e-30
-            mode_shapes_global[:, m] ./= max_val
+            _scale_matrix_column!(mode_shapes_global, m, 1.0 / max_val)
         end
     end
     buckling_timings["expand_modes"] = (time_ns() - t_expand_modes) * 1e-9
@@ -3990,18 +4034,29 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     # Expand to full DOF set
     mode_shapes = zeros(ndof, n_out)
     for m in 1:n_out
-        mode_shapes[free_dofs, m] = eigenvectors[:, m]
+        @inbounds for (row, dof) in pairs(free_dofs)
+            mode_shapes[dof, m] = eigenvectors[row, m]
+        end
     end
 
     # Transform to global coordinates
     mode_shapes_global = zeros(ndof, n_out)
-    sorted_nodes = sort(collect(keys(id_map)))
-    for nid in sorted_nodes
-        idx = id_map[nid]; base = (idx-1)*6
+    for idx in values(id_map)
+        base = (idx-1)*6
+        R = node_R[idx]
         for m in 1:n_out
-            u_loc = mode_shapes[base+1:base+6, m]
-            mode_shapes_global[base+1:base+3, m] = node_R[idx] * u_loc[1:3]
-            mode_shapes_global[base+4:base+6, m] = node_R[idx] * u_loc[4:6]
+            u1 = mode_shapes[base + 1, m]
+            u2 = mode_shapes[base + 2, m]
+            u3 = mode_shapes[base + 3, m]
+            r1 = mode_shapes[base + 4, m]
+            r2 = mode_shapes[base + 5, m]
+            r3 = mode_shapes[base + 6, m]
+            mode_shapes_global[base + 1, m] = R[1, 1] * u1 + R[1, 2] * u2 + R[1, 3] * u3
+            mode_shapes_global[base + 2, m] = R[2, 1] * u1 + R[2, 2] * u2 + R[2, 3] * u3
+            mode_shapes_global[base + 3, m] = R[3, 1] * u1 + R[3, 2] * u2 + R[3, 3] * u3
+            mode_shapes_global[base + 4, m] = R[1, 1] * r1 + R[1, 2] * r2 + R[1, 3] * r3
+            mode_shapes_global[base + 5, m] = R[2, 1] * r1 + R[2, 2] * r2 + R[2, 3] * r3
+            mode_shapes_global[base + 6, m] = R[3, 1] * r1 + R[3, 2] * r2 + R[3, 3] * r3
         end
     end
 
@@ -4015,20 +4070,20 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     # Normalize mode shapes according to the requested EIGRL NORM.
     for m in 1:n_out
         if norm_mode == "MAX"
-            max_val = maximum(abs.(mode_shapes_global[:, m]))
+            max_val = _matrix_column_max_abs(mode_shapes_global, m)
             if max_val > 1e-30
-                mode_shapes_global[:, m] ./= max_val
+                _scale_matrix_column!(mode_shapes_global, m, 1.0 / max_val)
             end
         else
             phi = mode_shapes[free_dofs, m]  # use analysis-frame eigenvector
             gen_mass = dot(phi, M_ff * phi)
             if gen_mass > 1e-30
                 scale = 1.0 / sqrt(gen_mass)
-                mode_shapes_global[:, m] .*= scale
+                _scale_matrix_column!(mode_shapes_global, m, scale)
             else
-                max_val = maximum(abs.(mode_shapes_global[:, m]))
+                max_val = _matrix_column_max_abs(mode_shapes_global, m)
                 if max_val > 1e-30
-                    mode_shapes_global[:, m] ./= max_val
+                    _scale_matrix_column!(mode_shapes_global, m, 1.0 / max_val)
                 end
             end
         end
