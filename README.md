@@ -334,6 +334,8 @@ Example `cases.json`:
   "defaults": {
     "flags": {
       "JFEM_EXPORT_BINARY": "false",
+      "JFEM_MATRIX_ASYMMETRY_CHECK": "false",
+      "JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES": "false",
       "JFEM_SUPPRESS_THREAD_HINT": "1"
     },
     "output_options": {
@@ -401,6 +403,16 @@ Use JSON manifests when another program needs exact control of input paths,
 output paths, and output options. The `.JU.JSON` file is written when
 `"json": true` is present in `output_options`.
 
+For SOL 105 optimization loops that only need buckling load factors, add:
+
+```json
+"eigenvalues_only": true
+```
+
+inside `output_options`. This skips full mode-shape expansion and disables
+mode-dependent exports such as VTK, HDF5, and `.jfem` for that run. The report
+and `.BUCKLING.JSON` still contain the buckling factors.
+
 ## Python Optimization Loop
 
 For heavy optimization, Python should not launch Julia for every case or every
@@ -431,7 +443,7 @@ with JFEMWorker(repo_root=repo, threads="auto") as worker:
             cases,
             output_root,
             batch_id=f"opt_{iteration:04d}",
-            output_options={"binary": False, "json": True},
+            output_options={"binary": False, "json": True, "eigenvalues_only": True},
         )
         response = worker.run_batch(manifest)
         summary = load_summary(response["summary_json"])
@@ -441,6 +453,9 @@ with JFEMWorker(repo_root=repo, threads="auto") as worker:
 The JSONL worker keeps stdout as protocol-only JSON. Solver output is written
 to each case's `jfem_case_stdout.log`, which makes the protocol safe for Python
 parsing.
+
+The example uses `eigenvalues_only=True`, which is the preferred setting when
+the optimizer reads buckling factors and does not inspect mode shapes.
 
 This is the fastest production automation path currently exposed by OpenJFEM:
 
@@ -464,6 +479,12 @@ python ./JFEM/python/jfem_manifest_cli.py run-worker /home/user/models/cases.jso
 
 For heavy optimization, prefer the `JFEMWorker` example above so the same Julia
 worker remains open across many design iterations.
+
+To create an eigenvalues-only manifest from the command line:
+
+```powershell
+python .\JFEM\python\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --eigenvalues-only
+```
 
 ## Post-Processing
 

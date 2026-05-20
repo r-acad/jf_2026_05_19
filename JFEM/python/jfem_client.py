@@ -21,6 +21,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
 DEFAULT_FAST_FLAGS: Dict[str, str] = {
     "JFEM_EXPORT_BINARY": "false",
+    "JFEM_MATRIX_ASYMMETRY_CHECK": "false",
+    "JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES": "false",
     "JFEM_SUPPRESS_THREAD_HINT": "1",
 }
 
@@ -40,6 +42,8 @@ def write_batch_manifest(
 
     Each case must contain at least ``input``. ``case_id`` and ``output_dir`` are
     optional; JFEM will derive stable output folders when they are omitted.
+    Use ``output_options={"json": True, "binary": False, "eigenvalues_only": True}``
+    when a SOL 105 optimization loop needs buckling factors but not mode shapes.
     """
 
     manifest_path = Path(path)

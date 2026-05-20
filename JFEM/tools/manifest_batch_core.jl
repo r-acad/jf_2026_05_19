@@ -109,6 +109,9 @@ end
 function _manifest_export_options(options::AbstractDict, flags::AbstractDict)
     binary_default = lowercase(strip(string(get(flags, "JFEM_EXPORT_BINARY", "true")))) in
                      ("1", "true", "yes", "on")
+    eigenvalues_only = _manifest_output_bool(options,
+        ("eigenvalues_only", "sol105_eigenvalues_only", "buckling_factors_only", "values_only"),
+        false)
     binary = _manifest_output_bool(options,
         ("binary", "jfem_binary", "export_binary", "export_jfem_binary"),
         binary_default)
@@ -116,9 +119,10 @@ function _manifest_export_options(options::AbstractDict, flags::AbstractDict)
         export_model_json = _manifest_output_bool(options, ("model_json", "export_model_json"), false),
         export_card_inventory = _manifest_output_bool(options, ("card_inventory", "export_card_inventory"), false),
         export_json = _manifest_output_bool(options, ("json", "export_json", "results_json"), false),
-        export_vtk = _manifest_output_bool(options, ("vtk", "export_vtk"), false),
-        export_hdf5 = _manifest_output_bool(options, ("hdf5", "h5", "export_hdf5"), false),
-        export_jfem_binary = binary,
+        export_vtk = !eigenvalues_only && _manifest_output_bool(options, ("vtk", "export_vtk"), false),
+        export_hdf5 = !eigenvalues_only && _manifest_output_bool(options, ("hdf5", "h5", "export_hdf5"), false),
+        export_jfem_binary = !eigenvalues_only && binary,
+        eigenvalues_only = eigenvalues_only,
     )
 end
 
@@ -213,6 +217,10 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
     merge!(case_flags, _manifest_string_dict(_manifest_get(raw_case, "flags_raw", nothing)))
     options = _manifest_case_output_options(defaults, raw_case)
     export_opts = _manifest_export_options(options, case_flags)
+    if export_opts.eigenvalues_only
+        case_flags["JFEM_SOL105_EIGENVALUES_ONLY"] = "true"
+        case_flags["JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES"] = "false"
+    end
     if export_opts.export_jfem_binary
         case_flags["JFEM_EXPORT_BINARY"] = "true"
     else

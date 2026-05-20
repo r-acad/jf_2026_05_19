@@ -1336,6 +1336,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     sol105_static_cache_misses = 0
     sol105_eigen_seeded_from_static = 0
     sol105_static_full_recovery = Solver.solver_env_bool("JFEM_SOL105_STATIC_FULL_RECOVERY", false)
+    sol105_eigenvalues_only = Solver.solver_env_bool("JFEM_SOL105_EIGENVALUES_ONLY", false)
     all_eigenvalues = Float64[]
     all_mode_shapes = Vector{Vector{Float64}}()
     buckling_case_diagnostics = Any[]
@@ -1569,6 +1570,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "eigen_solve_cache_enabled" => eigen_solve_cache !== nothing,
             "eigen_seeded_from_static_linear_cache" => sol105_eigen_seeded_from_static,
             "static_full_recovery" => sol105_static_full_recovery,
+            "eigenvalues_only" => sol105_eigenvalues_only,
             "public_mode_shapes_stored" => store_public_mode_shapes,
         ),
         "timings" => Dict{String,Any}(
@@ -1892,18 +1894,22 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
     elseif sol_type == 105
         mode_shapes = results["_raw_mode_shapes"]
         eigenvalues = results["eigenvalues"]
-        if export_vtk
+        mode_shapes_available = size(mode_shapes, 2) >= length(eigenvalues)
+        if !mode_shapes_available && (export_vtk || export_hdf5 || export_jfem_binary)
+            println(">>> Mode shapes are omitted for this SOL 105 run; skipping VTK/HDF5/.jfem mode-shape exports.")
+        end
+        if export_vtk && mode_shapes_available
             export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes)
         end
         if export_json
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing))
         end
-        if export_hdf5
+        if export_hdf5 && mode_shapes_available
             getfield(@__MODULE__, :export_hdf5)(filename, output_dir, build_buckling_hdf5_payload(results, filename);
                 suffix=".BUCKLING.H5", label="BUCKLING HDF5")
         end
-        if export_jfem_binary
+        if export_jfem_binary && mode_shapes_available
             export_jfem_buckling(filename, output_dir, id_map, X,
                 jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods,
                 jfem_tetras, jfem_hexas, jfem_pentas,

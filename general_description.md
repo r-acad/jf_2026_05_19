@@ -164,6 +164,9 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - Production fast flags that skip development-only buckling matrix-asymmetry
   diagnostics and the duplicate public `mode_shapes` list while keeping raw
   mode data available for reports and exports.
+- An opt-in SOL 105 eigenvalues-only mode for optimization loops that need
+  buckling load factors but not full mode-shape recovery or mode-dependent
+  exports.
 - Allocation-reduced node force transforms and modal post-processing loops for
   repeated buckling and modal runs.
 - Optional PackageCompiler sysimage creation from the deployment helper when
@@ -180,6 +183,8 @@ For production SOL 105 work, the recommended path is:
 4. For optimization loops, start `JFEM/tools/jfem_worker_jsonl.jl` once and
    submit JSON manifests from Python using `JFEM/python/jfem_client.py`.
 5. Disable `.jfem` export unless interactive visualization is required.
+6. Set `output_options.eigenvalues_only=true` when the outer optimizer only
+   needs SOL 105 buckling factors.
 
 ## Optimization And Sensitivity Analysis
 

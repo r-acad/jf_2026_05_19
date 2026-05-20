@@ -1963,6 +1963,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         "solver_backend" => "unsolved",
         "solver_attempts" => Any[],
         "returned_modes" => 0,
+        "mode_shapes_omitted" => false,
     )
 
     t_slice = time_ns()
@@ -3215,11 +3216,28 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         output_sorted_idx = sorted_idx[1:n_out]
     end
 
+    t_expand_modes = time_ns()
     final_eigenvalues = eigenvalues[output_sorted_idx]
+    eigenvalues_only = solver_env_bool("JFEM_SOL105_EIGENVALUES_ONLY", false)
+    if eigenvalues_only
+        diagnostics["returned_modes"] = n_out
+        diagnostics["mode_shapes_omitted"] = true
+        diagnostics["mode_shapes_omitted_reason"] = "JFEM_SOL105_EIGENVALUES_ONLY=true"
+        buckling_timings["expand_modes"] = (time_ns() - t_expand_modes) * 1e-9
+        log_msg("[BUCKLING] Skipping full mode-shape expansion (JFEM_SOL105_EIGENVALUES_ONLY=true)")
+        log_msg("[BUCKLING] Eigenvalues (buckling load factors):")
+        for (i, lam) in enumerate(final_eigenvalues)
+            log_msg("  Mode $i: lambda = $(round(lam, digits=6))")
+        end
+        buckling_timings["postprocess_filter_expand"] = (time_ns() - t_postprocess) * 1e-9
+        buckling_timings["total"] = (time_ns() - t_buckling_total) * 1e-9
+        diagnostics["timings"] = buckling_timings
+        return return_diagnostics ? (final_eigenvalues, zeros(ndof, 0), diagnostics) : (final_eigenvalues, zeros(ndof, 0))
+    end
+
     final_eigenvectors = eigenvectors[:, output_sorted_idx]
 
     # Expand to full DOF set
-    t_expand_modes = time_ns()
     mode_shapes = zeros(ndof, n_out)
     for m in 1:n_out
         @inbounds for (row, dof) in pairs(free_dofs)

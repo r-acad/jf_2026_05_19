@@ -88,6 +88,7 @@ def _cmd_make(args: argparse.Namespace) -> int:
         "card_inventory": bool(args.export_card_inventory),
         "vtk": bool(args.export_vtk),
         "hdf5": bool(args.export_hdf5),
+        "eigenvalues_only": bool(args.eigenvalues_only),
     }
     manifest = write_batch_manifest(
         args.manifest,
@@ -149,6 +150,11 @@ def _build_parser() -> argparse.ArgumentParser:
     make.add_argument("--export-card-inventory", action="store_true", help="write parsed card inventory")
     make.add_argument("--export-vtk", action="store_true", help="write VTK output")
     make.add_argument("--export-hdf5", action="store_true", help="write HDF5 output")
+    make.add_argument(
+        "--eigenvalues-only",
+        action="store_true",
+        help="SOL 105 optimization mode: write buckling factors but skip full mode-shape expansion and mode-dependent exports",
+    )
     make.set_defaults(func=_cmd_make)
 
     run_once = sub.add_parser("run-once", help="run one manifest by launching one Julia process")
