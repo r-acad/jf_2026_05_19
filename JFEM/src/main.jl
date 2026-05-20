@@ -32,7 +32,8 @@ function main(filename::String;
               export_json::Bool=false,
               export_vtk::Bool=false,
               export_hdf5::Bool=false,
-              export_jfem_binary::Bool=true)
+              export_jfem_binary::Bool=true,
+              export_report::Bool=true)
     if !isfile(filename)
         println("ERROR: File not found at: $filename")
         return
@@ -103,7 +104,9 @@ function main(filename::String;
         "solve"       => t_solve,
         "export"      => t_export,
     )
-    export_markdown_report(results, filename, output_dir; timings=pipeline_timings)
+    if export_report
+        export_markdown_report(results, filename, output_dir; timings=pipeline_timings)
+    end
 
     # --- Adjoint sensitivity (optional) ---
     adjoint_config = joinpath(dirname(abspath(filename)), "adjoint_config.json")

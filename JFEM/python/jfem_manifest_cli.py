@@ -89,6 +89,7 @@ def _cmd_make(args: argparse.Namespace) -> int:
         "vtk": bool(args.export_vtk),
         "hdf5": bool(args.export_hdf5),
         "eigenvalues_only": bool(args.eigenvalues_only),
+        "report": not args.no_report,
     }
     manifest = write_batch_manifest(
         args.manifest,
@@ -155,6 +156,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="SOL 105 optimization mode: write buckling factors but skip full mode-shape expansion and mode-dependent exports",
     )
+    make.add_argument("--no-report", action="store_true", help="skip Markdown .REPORT.md files")
     make.set_defaults(func=_cmd_make)
 
     run_once = sub.add_parser("run-once", help="run one manifest by launching one Julia process")

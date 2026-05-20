@@ -278,7 +278,7 @@ Recommended manifest fields:
 |---|---|
 | `batch_id` | readable name for the batch |
 | `defaults.flags` | default `JFEM_*` run flags for all cases |
-| `defaults.output_options` | result formats to write |
+| `defaults.output_options` | result formats to write; use `eigenvalues_only` and `report` for optimization loops |
 | `defaults.gc_between` | run garbage collection between cases |
 | `defaults.stop_on_error` | stop the batch at the first failed case |
 | `cases[].case_id` | stable case name used in summaries |
@@ -340,7 +340,8 @@ Example `cases.json`:
     },
     "output_options": {
       "binary": false,
-      "json": true
+      "json": true,
+      "report": true
     },
     "gc_between": true,
     "stop_on_error": false
@@ -399,6 +400,9 @@ The batch writes:
 <output_root>/<case_id>/jfem_case_stdout.log
 ```
 
+When `output_options.report` is `false`, the `.REPORT.md` file is skipped and
+the `report` column in `batch_summary.csv` is left blank for that case.
+
 Use JSON manifests when another program needs exact control of input paths,
 output paths, and output options. The `.JU.JSON` file is written when
 `"json": true` is present in `output_options`.
@@ -410,8 +414,9 @@ For SOL 105 optimization loops that only need buckling load factors, add:
 ```
 
 inside `output_options`. This skips full mode-shape expansion and disables
-mode-dependent exports such as VTK, HDF5, and `.jfem` for that run. The report
-and `.BUCKLING.JSON` still contain the buckling factors.
+mode-dependent exports such as VTK, HDF5, and `.jfem` for that run. Add
+`"report": false` when the optimizer reads `.BUCKLING.JSON` or
+`batch_summary.csv` directly and does not need `.REPORT.md` files.
 
 ## Python Optimization Loop
 
@@ -443,7 +448,12 @@ with JFEMWorker(repo_root=repo, threads="auto") as worker:
             cases,
             output_root,
             batch_id=f"opt_{iteration:04d}",
-            output_options={"binary": False, "json": True, "eigenvalues_only": True},
+            output_options={
+                "binary": False,
+                "json": True,
+                "eigenvalues_only": True,
+                "report": False,
+            },
         )
         response = worker.run_batch(manifest)
         summary = load_summary(response["summary_json"])
@@ -454,8 +464,9 @@ The JSONL worker keeps stdout as protocol-only JSON. Solver output is written
 to each case's `jfem_case_stdout.log`, which makes the protocol safe for Python
 parsing.
 
-The example uses `eigenvalues_only=True`, which is the preferred setting when
-the optimizer reads buckling factors and does not inspect mode shapes.
+The example uses `eigenvalues_only=True` and `report=False`, which is the
+preferred setting when the optimizer reads buckling factors from JSON/CSV and
+does not inspect mode shapes or Markdown reports.
 
 This is the fastest production automation path currently exposed by OpenJFEM:
 
@@ -483,7 +494,7 @@ worker remains open across many design iterations.
 To create an eigenvalues-only manifest from the command line:
 
 ```powershell
-python .\JFEM\python\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --eigenvalues-only
+python .\JFEM\python\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --eigenvalues-only --no-report
 ```
 
 ## Post-Processing

@@ -122,6 +122,7 @@ function _manifest_export_options(options::AbstractDict, flags::AbstractDict)
         export_vtk = !eigenvalues_only && _manifest_output_bool(options, ("vtk", "export_vtk"), false),
         export_hdf5 = !eigenvalues_only && _manifest_output_bool(options, ("hdf5", "h5", "export_hdf5"), false),
         export_jfem_binary = !eigenvalues_only && binary,
+        export_report = _manifest_output_bool(options, ("report", "markdown_report", "export_report"), true),
         eigenvalues_only = eigenvalues_only,
     )
 end
@@ -240,6 +241,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
         "case_index" => case["index"],
         "flags_raw" => join(["$k=$(applied_case_flags[k])" for k in sort(collect(keys(applied_case_flags)))], ","),
         "export_jfem_binary" => export_opts.export_jfem_binary,
+        "export_report" => export_opts.export_report,
         "output_options" => Dict(String(k) => v for (k, v) in pairs(options)),
         "quiet_log" => quiet ? case_log : "",
     )
@@ -282,7 +284,8 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                             export_json=export_opts.export_json,
                             export_vtk=export_opts.export_vtk,
                             export_hdf5=export_opts.export_hdf5,
-                            export_jfem_binary=export_opts.export_jfem_binary)
+                            export_jfem_binary=export_opts.export_jfem_binary,
+                            export_report=export_opts.export_report)
                     end
                 end
             end
@@ -294,7 +297,8 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                 export_json=export_opts.export_json,
                 export_vtk=export_opts.export_vtk,
                 export_hdf5=export_opts.export_hdf5,
-                export_jfem_binary=export_opts.export_jfem_binary)
+                export_jfem_binary=export_opts.export_jfem_binary,
+                export_report=export_opts.export_report)
         end
     end
     wall = (time_ns() - t0) * 1e-9
@@ -305,7 +309,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
         "wall_s" => wall,
         "input" => deck,
         "output_dir" => out_dir,
-        "report" => _manifest_report_path(deck, out_dir),
+        "report" => export_opts.export_report ? _manifest_report_path(deck, out_dir) : "",
         "log" => quiet ? case_log : "",
         "error" => "",
     )

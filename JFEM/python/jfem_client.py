@@ -42,8 +42,9 @@ def write_batch_manifest(
 
     Each case must contain at least ``input``. ``case_id`` and ``output_dir`` are
     optional; JFEM will derive stable output folders when they are omitted.
-    Use ``output_options={"json": True, "binary": False, "eigenvalues_only": True}``
-    when a SOL 105 optimization loop needs buckling factors but not mode shapes.
+    Use ``output_options={"json": True, "binary": False, "eigenvalues_only": True,
+    "report": False}`` when a SOL 105 optimization loop needs buckling factors
+    but not mode shapes or Markdown reports.
     """
 
     manifest_path = Path(path)

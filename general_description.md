@@ -167,6 +167,8 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - An opt-in SOL 105 eigenvalues-only mode for optimization loops that need
   buckling load factors but not full mode-shape recovery or mode-dependent
   exports.
+- Manifest-level report suppression for JSON/CSV-driven optimization loops that
+  do not consume Markdown reports.
 - Allocation-reduced node force transforms and modal post-processing loops for
   repeated buckling and modal runs.
 - Optional PackageCompiler sysimage creation from the deployment helper when
@@ -185,6 +187,8 @@ For production SOL 105 work, the recommended path is:
 5. Disable `.jfem` export unless interactive visualization is required.
 6. Set `output_options.eigenvalues_only=true` when the outer optimizer only
    needs SOL 105 buckling factors.
+7. Set `output_options.report=false` when the outer optimizer reads JSON/CSV
+   outputs directly.
 
 ## Optimization And Sensitivity Analysis
 
