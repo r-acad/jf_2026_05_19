@@ -45,6 +45,9 @@ def write_batch_manifest(
     Use ``output_options={"json": True, "binary": False, "eigenvalues_only": True,
     "report": False}`` when a SOL 105 optimization loop needs buckling factors
     but not mode shapes or Markdown reports.
+    Use ``output_options={"json": True, "binary": False, "eigenvectors": True,
+    "report": False}`` when the loop also needs buckling eigenvectors; read
+    the file named by ``case["result_json"]`` in ``batch_summary.json``.
     """
 
     manifest_path = Path(path)

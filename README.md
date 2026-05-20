@@ -406,6 +406,9 @@ For modal and buckling runs, `batch_summary.csv` and `batch_summary.json` also
 include `sol_type`, `eigenvalue_count`, `first_eigenvalue`, and the full
 `eigenvalues` vector. This lets optimization scripts read buckling factors from
 one summary file without reopening every case result JSON.
+When mode shapes are written, the summary also includes `mode_shape_count`,
+`mode_shapes_available`, and `result_json`, which points to the per-case JSON
+file containing the eigenvectors.
 
 Use JSON manifests when another program needs exact control of input paths,
 output paths, and output options. The `.JU.JSON` file is written when
@@ -421,6 +424,17 @@ inside `output_options`. This skips full mode-shape expansion and disables
 mode-dependent exports such as VTK, HDF5, and `.jfem` for that run. Add
 `"report": false` when the optimizer reads `.BUCKLING.JSON` or
 `batch_summary.csv` directly and does not need `.REPORT.md` files.
+
+If the optimization algorithm also needs buckling eigenvectors, use:
+
+```json
+"eigenvectors": true
+```
+
+inside `output_options` instead of `eigenvalues_only`. This keeps mode-shape
+recovery enabled and writes the eigenvectors to `.BUCKLING.JSON` under
+`modes[].mode_shape`. The path is also recorded in
+`batch_summary.json` as `cases[].result_json`.
 
 ## Python Optimization Loop
 
@@ -466,6 +480,23 @@ with JFEMWorker(repo_root=repo, threads="auto") as worker:
         # Use factors, update design variables, generate next decks.
 ```
 
+When eigenvectors are needed, create the manifest with:
+
+```python
+output_options={
+    "binary": False,
+    "json": True,
+    "eigenvectors": True,
+    "report": False,
+}
+```
+
+Then read the per-case JSON path from:
+
+```python
+mode_json = summary["cases"][0]["result_json"]
+```
+
 The JSONL worker keeps stdout as protocol-only JSON. Solver output is written
 to each case's `jfem_case_stdout.log`, which makes the protocol safe for Python
 parsing.
@@ -501,6 +532,12 @@ To create an eigenvalues-only manifest from the command line:
 
 ```powershell
 python .\JFEM\python\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --eigenvalues-only --no-report
+```
+
+To request eigenvectors instead:
+
+```powershell
+python .\JFEM\python\jfem_manifest_cli.py make --input-dir C:\models --manifest C:\models\cases.json --output-root D:\jfem_runs\batch_001 --export-eigenvectors --no-report
 ```
 
 ## Post-Processing

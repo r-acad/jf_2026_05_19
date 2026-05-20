@@ -109,21 +109,26 @@ end
 function _manifest_export_options(options::AbstractDict, flags::AbstractDict)
     binary_default = lowercase(strip(string(get(flags, "JFEM_EXPORT_BINARY", "true")))) in
                      ("1", "true", "yes", "on")
-    eigenvalues_only = _manifest_output_bool(options,
+    eigenvectors = _manifest_output_bool(options,
+        ("eigenvectors", "mode_shapes", "buckling_eigenvectors", "export_eigenvectors", "export_mode_shapes"),
+        false)
+    eigenvalues_only_requested = _manifest_output_bool(options,
         ("eigenvalues_only", "sol105_eigenvalues_only", "buckling_factors_only", "values_only"),
         false)
+    eigenvalues_only = eigenvalues_only_requested && !eigenvectors
     binary = _manifest_output_bool(options,
         ("binary", "jfem_binary", "export_binary", "export_jfem_binary"),
         binary_default)
     return (
         export_model_json = _manifest_output_bool(options, ("model_json", "export_model_json"), false),
         export_card_inventory = _manifest_output_bool(options, ("card_inventory", "export_card_inventory"), false),
-        export_json = _manifest_output_bool(options, ("json", "export_json", "results_json"), false),
+        export_json = eigenvectors || _manifest_output_bool(options, ("json", "export_json", "results_json"), false),
         export_vtk = !eigenvalues_only && _manifest_output_bool(options, ("vtk", "export_vtk"), false),
         export_hdf5 = !eigenvalues_only && _manifest_output_bool(options, ("hdf5", "h5", "export_hdf5"), false),
         export_jfem_binary = !eigenvalues_only && binary,
         export_report = _manifest_output_bool(options, ("report", "markdown_report", "export_report"), true),
         eigenvalues_only = eigenvalues_only,
+        eigenvectors = eigenvectors,
     )
 end
 
@@ -202,6 +207,27 @@ function _manifest_report_path(deck::AbstractString, output_dir::AbstractString)
     return joinpath(output_dir, splitext(basename(deck))[1] * ".REPORT.md")
 end
 
+function _manifest_export_base_name(deck::AbstractString)
+    return replace(basename(deck), r"(?i)\.bdf$" => "")
+end
+
+function _manifest_result_json_path(deck::AbstractString, output_dir::AbstractString, sol_type, export_json::Bool)
+    export_json || return ""
+    sol = tryparse(Int, string(sol_type))
+    sol === nothing && return ""
+    base = _manifest_export_base_name(deck)
+    if sol == 103 || sol == 105
+        return joinpath(output_dir, base * ".BUCKLING.JSON")
+    elseif sol == 106
+        return joinpath(output_dir, base * ".NONLINEAR.JSON")
+    elseif sol == 101
+        return joinpath(output_dir, base * ".JU.JSON")
+    elseif sol == 200
+        return joinpath(output_dir, base * ".OPTIMIZATION.JSON")
+    end
+    return ""
+end
+
 function _manifest_float_vector(value)
     vals = Float64[]
     value isa AbstractVector || return vals
@@ -220,6 +246,17 @@ function _manifest_float_cell(vals::AbstractVector{Float64})
     return join([@sprintf("%.17g", v) for v in vals], ";")
 end
 
+function _manifest_mode_shape_count(results)
+    results isa AbstractDict || return 0
+    raw = get(results, "_raw_mode_shapes", nothing)
+    raw === nothing && return 0
+    try
+        return size(raw, 2)
+    catch
+        return 0
+    end
+end
+
 function _manifest_result_summary(results)
     results isa AbstractDict || return Dict{String,Any}(
         "sol_type" => "",
@@ -227,14 +264,19 @@ function _manifest_result_summary(results)
         "eigenvalue_count" => 0,
         "first_eigenvalue" => "",
         "eigenvalues_csv" => "",
+        "mode_shape_count" => 0,
+        "mode_shapes_available" => false,
     )
     eigenvalues = _manifest_float_vector(get(results, "eigenvalues", Float64[]))
+    mode_shape_count = _manifest_mode_shape_count(results)
     return Dict{String,Any}(
         "sol_type" => get(results, "sol_type", ""),
         "eigenvalues" => eigenvalues,
         "eigenvalue_count" => length(eigenvalues),
         "first_eigenvalue" => isempty(eigenvalues) ? "" : eigenvalues[1],
         "eigenvalues_csv" => _manifest_float_cell(eigenvalues),
+        "mode_shape_count" => mode_shape_count,
+        "mode_shapes_available" => !isempty(eigenvalues) && mode_shape_count >= length(eigenvalues),
     )
 end
 
@@ -257,6 +299,8 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
     if export_opts.eigenvalues_only
         case_flags["JFEM_SOL105_EIGENVALUES_ONLY"] = "true"
         case_flags["JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES"] = "false"
+    elseif export_opts.eigenvectors
+        case_flags["JFEM_SOL105_EIGENVALUES_ONLY"] = "false"
     end
     if export_opts.export_jfem_binary
         case_flags["JFEM_EXPORT_BINARY"] = "true"
@@ -278,6 +322,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
         "flags_raw" => join(["$k=$(applied_case_flags[k])" for k in sort(collect(keys(applied_case_flags)))], ","),
         "export_jfem_binary" => export_opts.export_jfem_binary,
         "export_report" => export_opts.export_report,
+        "export_eigenvectors" => export_opts.eigenvectors,
         "output_options" => Dict(String(k) => v for (k, v) in pairs(options)),
         "quiet_log" => quiet ? case_log : "",
     )
@@ -339,6 +384,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
     end
     wall = (time_ns() - t0) * 1e-9
     result_summary = _manifest_result_summary(case_results)
+    result_json = _manifest_result_json_path(deck, out_dir, result_summary["sol_type"], export_opts.export_json)
     return Dict{String,Any}(
         "index" => case["index"],
         "case_id" => case["case_id"],
@@ -348,6 +394,9 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
         "first_eigenvalue" => result_summary["first_eigenvalue"],
         "eigenvalues" => result_summary["eigenvalues"],
         "eigenvalues_csv" => result_summary["eigenvalues_csv"],
+        "mode_shape_count" => result_summary["mode_shape_count"],
+        "mode_shapes_available" => result_summary["mode_shapes_available"],
+        "result_json" => result_json,
         "wall_s" => wall,
         "input" => deck,
         "output_dir" => out_dir,
@@ -385,7 +434,7 @@ function run_batch_manifest!(manifest::AbstractDict;
     failed = 0
 
     open(summary_csv, "w") do csv
-        _manifest_write_csv_row(csv, ("index", "case_id", "status", "sol_type", "eigenvalue_count", "first_eigenvalue", "eigenvalues", "wall_s", "input", "output_dir", "report", "log", "error"))
+        _manifest_write_csv_row(csv, ("index", "case_id", "status", "sol_type", "eigenvalue_count", "first_eigenvalue", "eigenvalues", "mode_shape_count", "mode_shapes_available", "result_json", "wall_s", "input", "output_dir", "report", "log", "error"))
         for case in cases
             gc_between && Int(case["index"]) > 1 && GC.gc()
             row = Dict{String,Any}()
@@ -411,6 +460,9 @@ function run_batch_manifest!(manifest::AbstractDict;
                     "first_eigenvalue" => "",
                     "eigenvalues" => Float64[],
                     "eigenvalues_csv" => "",
+                    "mode_shape_count" => 0,
+                    "mode_shapes_available" => false,
+                    "result_json" => "",
                     "wall_s" => 0.0,
                     "input" => case["input"],
                     "output_dir" => case["output_dir"],
@@ -420,12 +472,12 @@ function run_batch_manifest!(manifest::AbstractDict;
                 )
                 if stop_on_error
                     push!(rows, row)
-                    _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["sol_type"], row["eigenvalue_count"], row["first_eigenvalue"], row["eigenvalues_csv"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
+                    _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["sol_type"], row["eigenvalue_count"], row["first_eigenvalue"], row["eigenvalues_csv"], row["mode_shape_count"], row["mode_shapes_available"], row["result_json"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
                     rethrow()
                 end
             end
             push!(rows, row)
-            _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["sol_type"], row["eigenvalue_count"], row["first_eigenvalue"], row["eigenvalues_csv"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
+            _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["sol_type"], row["eigenvalue_count"], row["first_eigenvalue"], row["eigenvalues_csv"], row["mode_shape_count"], row["mode_shapes_available"], row["result_json"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
         end
     end
 

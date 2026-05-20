@@ -89,6 +89,7 @@ def _cmd_make(args: argparse.Namespace) -> int:
         "vtk": bool(args.export_vtk),
         "hdf5": bool(args.export_hdf5),
         "eigenvalues_only": bool(args.eigenvalues_only),
+        "eigenvectors": bool(args.export_eigenvectors),
         "report": not args.no_report,
     }
     manifest = write_batch_manifest(
@@ -155,6 +156,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--eigenvalues-only",
         action="store_true",
         help="SOL 105 optimization mode: write buckling factors but skip full mode-shape expansion and mode-dependent exports",
+    )
+    make.add_argument(
+        "--export-eigenvectors",
+        action="store_true",
+        help="SOL 105 optimization mode: write buckling eigenvectors/mode shapes to .BUCKLING.JSON",
     )
     make.add_argument("--no-report", action="store_true", help="skip Markdown .REPORT.md files")
     make.set_defaults(func=_cmd_make)

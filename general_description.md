@@ -172,6 +172,9 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
 - Batch summaries that carry `first_eigenvalue` and full `eigenvalues` vectors,
   allowing Python optimization loops to read buckling factors from a single
   summary file.
+- An explicit SOL 105 eigenvector output option for optimization algorithms
+  that need mode shapes, with the per-case `.BUCKLING.JSON` path recorded in
+  the batch summary.
 - Allocation-reduced node force transforms and modal post-processing loops for
   repeated buckling and modal runs.
 - Optional PackageCompiler sysimage creation from the deployment helper when
@@ -194,6 +197,8 @@ For production SOL 105 work, the recommended path is:
    outputs directly.
 8. Read `summary["cases"][i]["first_eigenvalue"]` or `["eigenvalues"]` from
    `batch_summary.json` to avoid reopening every per-case result file.
+9. Set `output_options.eigenvectors=true` when the optimizer needs buckling
+   eigenvectors, then read `summary["cases"][i]["result_json"]`.
 
 ## Optimization And Sensitivity Analysis
 
