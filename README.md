@@ -402,6 +402,10 @@ The batch writes:
 
 When `output_options.report` is `false`, the `.REPORT.md` file is skipped and
 the `report` column in `batch_summary.csv` is left blank for that case.
+For modal and buckling runs, `batch_summary.csv` and `batch_summary.json` also
+include `sol_type`, `eigenvalue_count`, `first_eigenvalue`, and the full
+`eigenvalues` vector. This lets optimization scripts read buckling factors from
+one summary file without reopening every case result JSON.
 
 Use JSON manifests when another program needs exact control of input paths,
 output paths, and output options. The `.JU.JSON` file is written when
@@ -457,7 +461,9 @@ with JFEMWorker(repo_root=repo, threads="auto") as worker:
         )
         response = worker.run_batch(manifest)
         summary = load_summary(response["summary_json"])
-        # Read summary/results, update design variables, generate next decks.
+        first_buckling_factor = summary["cases"][0]["first_eigenvalue"]
+        all_buckling_factors = summary["cases"][0]["eigenvalues"]
+        # Use factors, update design variables, generate next decks.
 ```
 
 The JSONL worker keeps stdout as protocol-only JSON. Solver output is written

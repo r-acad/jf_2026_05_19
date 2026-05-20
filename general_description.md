@@ -169,6 +169,9 @@ OpenJFEM includes several mechanisms intended for repeated SOL 105 runs:
   exports.
 - Manifest-level report suppression for JSON/CSV-driven optimization loops that
   do not consume Markdown reports.
+- Batch summaries that carry `first_eigenvalue` and full `eigenvalues` vectors,
+  allowing Python optimization loops to read buckling factors from a single
+  summary file.
 - Allocation-reduced node force transforms and modal post-processing loops for
   repeated buckling and modal runs.
 - Optional PackageCompiler sysimage creation from the deployment helper when
@@ -189,6 +192,8 @@ For production SOL 105 work, the recommended path is:
    needs SOL 105 buckling factors.
 7. Set `output_options.report=false` when the outer optimizer reads JSON/CSV
    outputs directly.
+8. Read `summary["cases"][i]["first_eigenvalue"]` or `["eigenvalues"]` from
+   `batch_summary.json` to avoid reopening every per-case result file.
 
 ## Optimization And Sensitivity Analysis
 

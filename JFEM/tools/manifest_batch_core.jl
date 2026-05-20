@@ -202,6 +202,42 @@ function _manifest_report_path(deck::AbstractString, output_dir::AbstractString)
     return joinpath(output_dir, splitext(basename(deck))[1] * ".REPORT.md")
 end
 
+function _manifest_float_vector(value)
+    vals = Float64[]
+    value isa AbstractVector || return vals
+    for v in value
+        try
+            push!(vals, Float64(v))
+        catch
+            parsed = tryparse(Float64, string(v))
+            parsed === nothing || push!(vals, parsed)
+        end
+    end
+    return vals
+end
+
+function _manifest_float_cell(vals::AbstractVector{Float64})
+    return join([@sprintf("%.17g", v) for v in vals], ";")
+end
+
+function _manifest_result_summary(results)
+    results isa AbstractDict || return Dict{String,Any}(
+        "sol_type" => "",
+        "eigenvalues" => Float64[],
+        "eigenvalue_count" => 0,
+        "first_eigenvalue" => "",
+        "eigenvalues_csv" => "",
+    )
+    eigenvalues = _manifest_float_vector(get(results, "eigenvalues", Float64[]))
+    return Dict{String,Any}(
+        "sol_type" => get(results, "sol_type", ""),
+        "eigenvalues" => eigenvalues,
+        "eigenvalue_count" => length(eigenvalues),
+        "first_eigenvalue" => isempty(eigenvalues) ? "" : eigenvalues[1],
+        "eigenvalues_csv" => _manifest_float_cell(eigenvalues),
+    )
+end
+
 function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
                                  manifest_path::Union{Nothing,String},
                                  repo_root::AbstractString,
@@ -272,7 +308,7 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
     end
 
     t0 = time_ns()
-    _manifest_with_env(case_flags) do
+    case_results = _manifest_with_env(case_flags) do
         if quiet
             open(case_log, "a") do io
                 redirect_stdout(io) do
@@ -302,10 +338,16 @@ function _manifest_run_one_case!(case::AbstractDict, manifest::AbstractDict;
         end
     end
     wall = (time_ns() - t0) * 1e-9
+    result_summary = _manifest_result_summary(case_results)
     return Dict{String,Any}(
         "index" => case["index"],
         "case_id" => case["case_id"],
         "status" => "ok",
+        "sol_type" => result_summary["sol_type"],
+        "eigenvalue_count" => result_summary["eigenvalue_count"],
+        "first_eigenvalue" => result_summary["first_eigenvalue"],
+        "eigenvalues" => result_summary["eigenvalues"],
+        "eigenvalues_csv" => result_summary["eigenvalues_csv"],
         "wall_s" => wall,
         "input" => deck,
         "output_dir" => out_dir,
@@ -343,7 +385,7 @@ function run_batch_manifest!(manifest::AbstractDict;
     failed = 0
 
     open(summary_csv, "w") do csv
-        _manifest_write_csv_row(csv, ("index", "case_id", "status", "wall_s", "input", "output_dir", "report", "log", "error"))
+        _manifest_write_csv_row(csv, ("index", "case_id", "status", "sol_type", "eigenvalue_count", "first_eigenvalue", "eigenvalues", "wall_s", "input", "output_dir", "report", "log", "error"))
         for case in cases
             gc_between && Int(case["index"]) > 1 && GC.gc()
             row = Dict{String,Any}()
@@ -364,6 +406,11 @@ function run_batch_manifest!(manifest::AbstractDict;
                     "index" => case["index"],
                     "case_id" => case["case_id"],
                     "status" => "failed",
+                    "sol_type" => "",
+                    "eigenvalue_count" => 0,
+                    "first_eigenvalue" => "",
+                    "eigenvalues" => Float64[],
+                    "eigenvalues_csv" => "",
                     "wall_s" => 0.0,
                     "input" => case["input"],
                     "output_dir" => case["output_dir"],
@@ -373,12 +420,12 @@ function run_batch_manifest!(manifest::AbstractDict;
                 )
                 if stop_on_error
                     push!(rows, row)
-                    _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
+                    _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["sol_type"], row["eigenvalue_count"], row["first_eigenvalue"], row["eigenvalues_csv"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
                     rethrow()
                 end
             end
             push!(rows, row)
-            _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
+            _manifest_write_csv_row(csv, (row["index"], row["case_id"], row["status"], row["sol_type"], row["eigenvalue_count"], row["first_eigenvalue"], row["eigenvalues_csv"], row["wall_s"], row["input"], row["output_dir"], row["report"], row["log"], row["error"]))
         end
     end
 

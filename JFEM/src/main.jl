@@ -126,6 +126,7 @@ function main(filename::String;
             println(">>> Buckling adjoint results written to: $adj_output")
         end
     end
+    return results
 end
 
 # ============================================================================
