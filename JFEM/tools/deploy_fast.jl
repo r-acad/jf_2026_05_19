@@ -176,13 +176,15 @@ function _maybe_build_sysimage(sysimage::AbstractString, decks::Vector{String}, 
             return nothing
         end
     end
-    @eval using PackageCompiler
+    packagecompiler = Base.require(Base.PkgId(
+        Base.UUID("9b87118b-4619-50d2-8e1e-99f35a4d4d9d"),
+        "PackageCompiler"))
     mkpath(dirname(abspath(sysimage)))
     script = joinpath(mktempdir(; prefix="openjfem_sysimage_"), "precompile_execution.jl")
     _write_sysimage_precompile_script(script, decks, flags)
     println("Building OpenJFEM sysimage: $sysimage")
     println("This can take several minutes.")
-    PackageCompiler.create_sysimage([:OpenJFEM];
+    Base.invokelatest(getfield(packagecompiler, :create_sysimage), [:OpenJFEM];
         sysimage_path=sysimage,
         precompile_execution_file=script)
     println("Sysimage complete: $sysimage")
