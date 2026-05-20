@@ -1712,6 +1712,10 @@ function _ensure_export_extensions!()
         isdefined(@__MODULE__, :HDF5) || (@eval using HDF5)
         Base.include(@__MODULE__, joinpath(@__DIR__, "Export.jl"))
     end
+    if !isdefined(@__MODULE__, :export_markdown_report)
+        isdefined(@__MODULE__, :Printf) || (@eval using Printf)
+        Base.include(@__MODULE__, joinpath(@__DIR__, "MarkdownReport.jl"))
+    end
     return nothing
 end
 

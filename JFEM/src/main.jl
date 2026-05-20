@@ -44,7 +44,7 @@ function main(filename::String;
         output_dir = joinpath(script_dir, "..", "output")
     end
     if !isdir(output_dir)
-        mkdir(output_dir)
+        mkpath(output_dir)
     end
 
     # --- Stage 1: BDF → Model Dict ---
@@ -105,7 +105,7 @@ function main(filename::String;
         "export"      => t_export,
     )
     if export_report
-        export_markdown_report(results, filename, output_dir; timings=pipeline_timings)
+        Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=pipeline_timings)
     end
 
     # --- Adjoint sensitivity (optional) ---
