@@ -1799,8 +1799,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
             export_optimization_json(filename, output_dir, results)
         end
         if export_hdf5
-            getfield(@__MODULE__, :export_hdf5)(filename, output_dir, build_optimization_export_payload(results);
-                suffix=".OPTIMIZATION.H5", label="OPTIMIZATION HDF5")
+            println(">>> Compact MSC/Nastran-like HDF5 export is not implemented for SOL 200 optimization; skipping HDF5.")
         end
         if export_report
             export_markdown_report(results, filename, output_dir; timings=timings)
@@ -1865,8 +1864,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 analysis_type="SOL103_MODES", diagnostics=get(results, "solver_diagnostics", nothing))
         end
         if export_hdf5
-            getfield(@__MODULE__, :export_hdf5)(filename, output_dir, build_modal_hdf5_payload(results, filename);
-                suffix=".MODES.H5", label="MODAL HDF5")
+            getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
         end
         if export_jfem_binary
             export_jfem_buckling(filename, output_dir, id_map, X,
@@ -1886,8 +1884,7 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing))
         end
         if export_hdf5
-            getfield(@__MODULE__, :export_hdf5)(filename, output_dir, build_buckling_hdf5_payload(results, filename);
-                suffix=".BUCKLING.H5", label="BUCKLING HDF5")
+            getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
         end
         if export_jfem_binary
             export_jfem_buckling(filename, output_dir, id_map, X,
@@ -1930,7 +1927,7 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
                         export_hdf5::Bool=false,
                         export_jfem_binary::Bool=true)
     is_nonlinear = get(results, "sol_type", 101) == 106
-    needs_aggregated_results = export_json || export_hdf5
+    needs_aggregated_results = export_json
     global_results =
         if needs_aggregated_results
             payload = Dict(
@@ -1993,20 +1990,12 @@ function _export_sol101(results, filename, output_dir, model, id_map, X,
         getfield(@__MODULE__, :export_json)(filename, output_dir, global_results)
     end
     if export_hdf5
-        hdf5_payload = build_solution_hdf5_payload(results, filename, global_results)
-        getfield(@__MODULE__, :export_hdf5)(filename, output_dir, hdf5_payload;
-            suffix=".JU.H5", label="AGGREGATED HDF5")
+        getfield(@__MODULE__, :export_nastran_hdf5)(filename, output_dir, results)
     end
     if is_nonlinear
         if export_json
             export_nonlinear_json(filename, output_dir, results["subcases"];
                 diagnostics=get(results, "solver_diagnostics", nothing))
-        end
-        if export_hdf5
-            nonlinear_payload = build_nonlinear_export_payload(results["subcases"];
-                diagnostics=get(results, "solver_diagnostics", nothing))
-            getfield(@__MODULE__, :export_hdf5)(filename, output_dir, nonlinear_payload;
-                suffix=".NONLINEAR.H5", label="NONLINEAR HDF5")
         end
     end
     if export_jfem_binary
