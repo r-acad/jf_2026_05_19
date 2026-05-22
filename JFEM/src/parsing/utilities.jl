@@ -117,7 +117,7 @@ function get_nastran_fields_from_line(line::AbstractString; large_field::Bool=fa
         # Pad free-field lines to 8 fields to maintain NASTRAN card field alignment
         while length(fields) < 8; push!(fields, ""); end
     elseif occursin('\t', line)
-        # Mixed fixed-field + tab-delimited decks are common in production inputs.
+        # Mixed fixed-field + tab-delimited decks are common in MSCVAL.
         # Preserve empty tab fields so cards like PSHELL can intentionally skip slots.
         segments = split(line, '\t'; keepempty=true)
         prefix = rstrip(segments[1])

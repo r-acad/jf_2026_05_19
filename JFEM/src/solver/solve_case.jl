@@ -21,12 +21,20 @@ function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_m
             end
         end
         resolve_thermal_loads(model, temp_load_id, load_scale, id_map, elem_map, X, F_global_accum; node_R=node_R)
-        _rotate_global_force_to_analysis!(F_applied, F_global_accum, node_R, length(id_map))
+        for i in 1:length(id_map)
+            idx = (i-1)*6
+            F_applied[idx+1:idx+3] = node_R[i]' * view(F_global_accum, idx+1:idx+3)
+            F_applied[idx+4:idx+6] = node_R[i]' * view(F_global_accum, idx+4:idx+6)
+        end
     elseif !isnothing(temp_load_id)
         elem_map = Dict{Int, Any}()
         F_global_accum = zeros(ndof)
         resolve_thermal_loads(model, temp_load_id, load_scale, id_map, elem_map, X, F_global_accum; node_R=node_R)
-        _rotate_global_force_to_analysis!(F_applied, F_global_accum, node_R, length(id_map))
+        for i in 1:length(id_map)
+            idx = (i-1)*6
+            F_applied[idx+1:idx+3] = node_R[i]' * view(F_global_accum, idx+1:idx+3)
+            F_applied[idx+4:idx+6] = node_R[i]' * view(F_global_accum, idx+4:idx+6)
+        end
     end
 
     if !isempty(rbe3_map)
@@ -46,46 +54,6 @@ function _assemble_applied_force(ndof, model, id_map, X, load_id, node_R, rbe3_m
         end
     end
     return F_applied
-end
-
-function _rotate_global_force_to_analysis!(F_applied, F_global_accum, node_R, n_nodes::Int)
-    @inbounds for i in 1:n_nodes
-        idx = (i - 1) * 6
-        R = node_R[i]
-
-        f1 = F_global_accum[idx + 1]
-        f2 = F_global_accum[idx + 2]
-        f3 = F_global_accum[idx + 3]
-        F_applied[idx + 1] = R[1, 1] * f1 + R[2, 1] * f2 + R[3, 1] * f3
-        F_applied[idx + 2] = R[1, 2] * f1 + R[2, 2] * f2 + R[3, 2] * f3
-        F_applied[idx + 3] = R[1, 3] * f1 + R[2, 3] * f2 + R[3, 3] * f3
-
-        m1 = F_global_accum[idx + 4]
-        m2 = F_global_accum[idx + 5]
-        m3 = F_global_accum[idx + 6]
-        F_applied[idx + 4] = R[1, 1] * m1 + R[2, 1] * m2 + R[3, 1] * m3
-        F_applied[idx + 5] = R[1, 2] * m1 + R[2, 2] * m2 + R[3, 2] * m3
-        F_applied[idx + 6] = R[1, 3] * m1 + R[2, 3] * m2 + R[3, 3] * m3
-    end
-    return F_applied
-end
-
-@inline function _matrix_column_max_abs(A::AbstractMatrix, col::Int)
-    max_val = 0.0
-    @inbounds for row in axes(A, 1)
-        v = abs(A[row, col])
-        if v > max_val
-            max_val = v
-        end
-    end
-    return max_val
-end
-
-function _scale_matrix_column!(A::AbstractMatrix, col::Int, scale::Float64)
-    @inbounds for row in axes(A, 1)
-        A[row, col] *= scale
-    end
-    return A
 end
 
 function _deterministic_buckling_start_vector(n::Int, ordinal::Int)
@@ -874,40 +842,6 @@ function _solve_nonlinear_correction(K_eff, residual_rhs, ndof, model, id_map, s
     return correction, diagnostics
 end
 
-function solve_case_state(K, ndof, model, id_map, X, load_id, spc_id, node_R;
-                          max_elem_stiff=0.0,
-                          rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
-                          orig_diag=Float64[],
-                          load_scale::Float64=1.0,
-                          temp_load_id=nothing,
-                          linear_cache=nothing,
-                          log_rbe3::Bool=true)
-    F_applied = _assemble_applied_force(
-        ndof, model, id_map, X, load_id, node_R, rbe3_map;
-        load_scale=load_scale,
-        temp_load_id=temp_load_id,
-        log_rbe3=log_rbe3,
-    )
-
-    had_spc_id = haskey(model, "_spc_id")
-    prev_spc_id = had_spc_id ? model["_spc_id"] : nothing
-    model["_spc_id"] = spc_id
-    local u_global, fixed_dofs, solver_diagnostics
-    try
-        u_global, fixed_dofs, _, solver_diagnostics = apply_bc_and_solve(
-            K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
-            linear_cache=linear_cache)
-    finally
-        if had_spc_id
-            model["_spc_id"] = prev_spc_id
-        else
-            delete!(model, "_spc_id")
-        end
-    end
-
-    return u_global, fixed_dofs, solver_diagnostics, F_applied
-end
-
 function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     max_elem_stiff=0.0,
                     rbe3_map=Dict{Int,Vector{Tuple{Int,Float64}}}(),
@@ -916,16 +850,18 @@ function solve_case(K, ndof, model, id_map, X, load_id, spc_id, node_R;
                     load_scale::Float64=1.0,
                     temp_load_id=nothing,
                     linear_cache=nothing)
-    u_global, fixed_dofs, solver_diagnostics, F_applied = solve_case_state(
-        K, ndof, model, id_map, X, load_id, spc_id, node_R;
-        max_elem_stiff=max_elem_stiff,
-        rbe3_map=rbe3_map,
-        orig_diag=orig_diag,
+    F_applied = _assemble_applied_force(
+        ndof, model, id_map, X, load_id, node_R, rbe3_map;
         load_scale=load_scale,
         temp_load_id=temp_load_id,
-        linear_cache=linear_cache,
         log_rbe3=true,
     )
+
+    model["_spc_id"] = spc_id
+    u_global, fixed_dofs, _, solver_diagnostics = apply_bc_and_solve(
+        K, ndof, model, id_map, F_applied, node_R, rbe3_map, max_elem_stiff, orig_diag;
+        linear_cache=linear_cache)
+    delete!(model, "_spc_id")
 
     R = K * u_global - F_applied
     u_out, stresses, results_json = _build_results_from_state(
@@ -1963,7 +1899,6 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         "solver_backend" => "unsolved",
         "solver_attempts" => Any[],
         "returned_modes" => 0,
-        "mode_shapes_omitted" => false,
     )
 
     t_slice = time_ns()
@@ -1972,30 +1907,19 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     buckling_timings["slice_free_matrices"] = (time_ns() - t_slice) * 1e-9
 
     t_symmetry = time_ns()
+    Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
     # K_ff is symmetrized once when the eigen solve context is prepared/cached.
-    # Only Kg changes per buckling subcase. The asymmetry diagnostic is useful
-    # while developing new operators, but it builds another sparse matrix, so
-    # production batch runs can disable it without changing the solved matrix.
-    asymmetry_check = solver_env_bool("JFEM_MATRIX_ASYMMETRY_CHECK", true)
-    if asymmetry_check
-        Kg_norm_inf = max(norm(Kg_ff, Inf), 1e-30)
-        K_asym_rel = 0.0
-        Kg_asym_rel = norm(Kg_ff - Kg_ff', Inf) / Kg_norm_inf
-        diagnostics["matrix_asymmetry"] = Dict(
-            "checked" => true,
-            "K_inf_rel" => K_asym_rel,
-            "Kg_inf_rel" => Kg_asym_rel,
-        )
-        asym_warn_rel = solver_env_float("JFEM_MATRIX_ASYMMETRY_WARN_REL", 1e-10)
-        if K_asym_rel > asym_warn_rel || Kg_asym_rel > asym_warn_rel
-            log_msg("[BUCKLING] Matrix asymmetry before symmetrization: K=$(K_asym_rel), Kg=$(Kg_asym_rel)")
-        end
-    else
-        diagnostics["matrix_asymmetry"] = Dict(
-            "checked" => false,
-            "K_inf_rel" => nothing,
-            "Kg_inf_rel" => nothing,
-        )
+    # Only Kg changes per buckling subcase, so keep the per-subcase symmetry work
+    # focused there.
+    K_asym_rel = 0.0
+    Kg_asym_rel = norm(Kg_ff - Kg_ff', Inf) / Kg_norm_inf
+    diagnostics["matrix_asymmetry"] = Dict(
+        "K_inf_rel" => K_asym_rel,
+        "Kg_inf_rel" => Kg_asym_rel,
+    )
+    asym_warn_rel = solver_env_float("JFEM_MATRIX_ASYMMETRY_WARN_REL", 1e-10)
+    if K_asym_rel > asym_warn_rel || Kg_asym_rel > asym_warn_rel
+        log_msg("[BUCKLING] Matrix asymmetry before symmetrization: K=$(K_asym_rel), Kg=$(Kg_asym_rel)")
     end
 
     # Symmetrize after recording diagnostics; the generalized buckling solver
@@ -2519,7 +2443,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
             # proves the zero-shift search spanned the range (no "upper-branch
             # modes hiding behind low-|λ| clusters" can exist). Augmentation
             # would only rediscover duplicates. This branch is intentionally
-            # strict so that large-deck validation cases (where Strategy 2 only
+            # strict so that the GAME validation suite (where Strategy 2 only
             # reaches near zero) never takes it — parity preserved by default.
             #
             # Env opt-out: users may set JFEM_SOL105_SKIP_RANGE_AUGMENTATION=true
@@ -2650,7 +2574,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # `JFEM_PCOMP_RIGID_TS_CS_SCALE`) produce spurious low-magnitude modes
     # localized on tight clusters of 4-8 adjacent elements. Empirically, the
     # single-element top share for these modes is 25-50%; physical global
-    # buckling modes are ≤7% top share (verified on large validation runs:
+    # buckling modes are ≤7% top share (verified on GAME default runs:
     # HTP_launch mode 1 = 4.14% top share, VTP_3wp_strain mode 1 = 6.78%).
     # The cluster filter's spectral-gap rule misses these spurious modes
     # because they form a dense low-magnitude band with no clean gap below
@@ -2660,11 +2584,11 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         lowercase(loc_filter_raw) in ("1", "true", "yes", "on")
     loc_max_share_raw = strip(get(ENV, "JFEM_BUCKLING_LOCALIZATION_MAX_SHARE", ""))
     # Default 0.10 (2026-05-14 evening): physical buckling modes on the
-    # large validation set have top-element share 4-7% (representative mode 1 4.14%,
+    # GAME 7-case set have top-element share 4-7% (HTP_launch mode 1 4.14%,
     # VTP_3wp_strain mode 1 6.78%); intermediate spurious modes that survive
     # the 0.20 threshold sit at 13-14% (verified VTP_3wp_strain Cs=2 modes
     # 3-4). 0.10 catches the intermediate spurious without endangering
-    # physical modes. Verified safe on the large validation cases: same mode 1
+    # physical modes. Verified safe on all 7 default GAME cases: same mode 1
     # eigenvalue as without the filter (cluster filter handles fallback when
     # locfilter is aggressive). Override via env to relax (0.20) or tighten
     # (0.05) per deck.
@@ -3088,8 +3012,8 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         lowercase(cluster_filter_raw) in ("1", "true", "yes", "on")
     cluster_jump_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_RATIO", ""))
     # Default 1.25 (2026-05-01) — empirically detects the spectral gap between
-    # JFEM's spurious low cluster and the actual buckling cluster on
-    # multi-point bending cases (jump 0.903 -> 1.151, ratio 1.27).
+    # JFEM's spurious low cluster and the actual buckling cluster on the GAME
+    # 3wp 511003 cases (jump 0.903 → 1.151, ratio 1.27).
     cluster_jump_threshold = isempty(cluster_jump_raw) ? 1.25 :
         (tryparse(Float64, cluster_jump_raw) === nothing ? 1.25 : parse(Float64, cluster_jump_raw))
     cluster_jump_max_raw = strip(get(ENV, "JFEM_BUCKLING_CLUSTER_FILTER_RATIO_MAX", ""))
@@ -3125,7 +3049,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     # pre-jump cluster spans more than this ratio in eigenvalue magnitude.
     # Mechanism: spurious modes from kernel over-stiffening are all small local
     # instabilities of similar magnitude (observed pre-jump ratio 1.7-3× on the
-    # multi-point bending cases). If the pre-jump cluster spans >5×, it is not a spurious
+    # GAME 3wp cases). If the pre-jump cluster spans >5×, it is not a spurious
     # cluster — it is a physical low-frequency buckling band followed by higher-
     # frequency buckling modes (seen on probe BDFs with EIGRL V2=1e8 returning
     # many physical bands). Default 5× is generous vs observed spurious spreads.
@@ -3133,7 +3057,7 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
     cluster_max_pre_spread = isempty(cluster_max_pre_raw) ? 5.0 :
         (tryparse(Float64, cluster_max_pre_raw) === nothing ? 5.0 : parse(Float64, cluster_max_pre_raw))
     # JFEM_BUCKLING_CLUSTER_FILTER_MIN_ELEMENTS (2026-05-13): mesh-size guard.
-    # The cluster filter was tuned on large validation meshes (10K+ elements) where the
+    # The cluster filter was tuned on GAME meshes (10K+ elements) where the
     # spectrum is dense and "spurious clusters" are clearly identifiable.
     # On small meshes (4×4=16 elements, etc.) the spectrum is sparse: pairs of
     # physical modes can look like a "post-jump cluster" to the heuristic
@@ -3216,33 +3140,14 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
         output_sorted_idx = sorted_idx[1:n_out]
     end
 
-    t_expand_modes = time_ns()
     final_eigenvalues = eigenvalues[output_sorted_idx]
-    eigenvalues_only = solver_env_bool("JFEM_SOL105_EIGENVALUES_ONLY", false)
-    if eigenvalues_only
-        diagnostics["returned_modes"] = n_out
-        diagnostics["mode_shapes_omitted"] = true
-        diagnostics["mode_shapes_omitted_reason"] = "JFEM_SOL105_EIGENVALUES_ONLY=true"
-        buckling_timings["expand_modes"] = (time_ns() - t_expand_modes) * 1e-9
-        log_msg("[BUCKLING] Skipping full mode-shape expansion (JFEM_SOL105_EIGENVALUES_ONLY=true)")
-        log_msg("[BUCKLING] Eigenvalues (buckling load factors):")
-        for (i, lam) in enumerate(final_eigenvalues)
-            log_msg("  Mode $i: lambda = $(round(lam, digits=6))")
-        end
-        buckling_timings["postprocess_filter_expand"] = (time_ns() - t_postprocess) * 1e-9
-        buckling_timings["total"] = (time_ns() - t_buckling_total) * 1e-9
-        diagnostics["timings"] = buckling_timings
-        return return_diagnostics ? (final_eigenvalues, zeros(ndof, 0), diagnostics) : (final_eigenvalues, zeros(ndof, 0))
-    end
-
     final_eigenvectors = eigenvectors[:, output_sorted_idx]
 
     # Expand to full DOF set
+    t_expand_modes = time_ns()
     mode_shapes = zeros(ndof, n_out)
     for m in 1:n_out
-        @inbounds for (row, dof) in pairs(free_dofs)
-            mode_shapes[dof, m] = final_eigenvectors[row, m]
-        end
+        mode_shapes[free_dofs, m] = final_eigenvectors[:, m]
     end
 
     # Recover RBE3 dependent DOFs
@@ -3258,8 +3163,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
     # Transform mode shapes to global coordinates via node_R
     mode_shapes_global = zeros(ndof, n_out)
-    for idx in values(id_map)
-        base = (idx-1)*6
+    sorted_nodes = sort(collect(keys(id_map)))
+    for nid in sorted_nodes
+        idx = id_map[nid]; base = (idx-1)*6
         R = node_R[idx]
         for m in 1:n_out
             u1 = mode_shapes[base + 1, m]
@@ -3279,9 +3185,9 @@ function solve_buckling(K, Kg, ndof, model, id_map, X, spc_id, node_R, num_modes
 
     # Normalize mode shapes (max component = 1.0)
     for m in 1:n_out
-        max_val = _matrix_column_max_abs(mode_shapes_global, m)
+        max_val = maximum(abs.(mode_shapes_global[:, m]))
         if max_val > 1e-30
-            _scale_matrix_column!(mode_shapes_global, m, 1.0 / max_val)
+            mode_shapes_global[:, m] ./= max_val
         end
     end
     buckling_timings["expand_modes"] = (time_ns() - t_expand_modes) * 1e-9
@@ -4052,29 +3958,18 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     # Expand to full DOF set
     mode_shapes = zeros(ndof, n_out)
     for m in 1:n_out
-        @inbounds for (row, dof) in pairs(free_dofs)
-            mode_shapes[dof, m] = eigenvectors[row, m]
-        end
+        mode_shapes[free_dofs, m] = eigenvectors[:, m]
     end
 
     # Transform to global coordinates
     mode_shapes_global = zeros(ndof, n_out)
-    for idx in values(id_map)
-        base = (idx-1)*6
-        R = node_R[idx]
+    sorted_nodes = sort(collect(keys(id_map)))
+    for nid in sorted_nodes
+        idx = id_map[nid]; base = (idx-1)*6
         for m in 1:n_out
-            u1 = mode_shapes[base + 1, m]
-            u2 = mode_shapes[base + 2, m]
-            u3 = mode_shapes[base + 3, m]
-            r1 = mode_shapes[base + 4, m]
-            r2 = mode_shapes[base + 5, m]
-            r3 = mode_shapes[base + 6, m]
-            mode_shapes_global[base + 1, m] = R[1, 1] * u1 + R[1, 2] * u2 + R[1, 3] * u3
-            mode_shapes_global[base + 2, m] = R[2, 1] * u1 + R[2, 2] * u2 + R[2, 3] * u3
-            mode_shapes_global[base + 3, m] = R[3, 1] * u1 + R[3, 2] * u2 + R[3, 3] * u3
-            mode_shapes_global[base + 4, m] = R[1, 1] * r1 + R[1, 2] * r2 + R[1, 3] * r3
-            mode_shapes_global[base + 5, m] = R[2, 1] * r1 + R[2, 2] * r2 + R[2, 3] * r3
-            mode_shapes_global[base + 6, m] = R[3, 1] * r1 + R[3, 2] * r2 + R[3, 3] * r3
+            u_loc = mode_shapes[base+1:base+6, m]
+            mode_shapes_global[base+1:base+3, m] = node_R[idx] * u_loc[1:3]
+            mode_shapes_global[base+4:base+6, m] = node_R[idx] * u_loc[4:6]
         end
     end
 
@@ -4088,20 +3983,20 @@ function solve_modes(K, M, ndof, model, id_map, X, spc_id, node_R, num_modes;
     # Normalize mode shapes according to the requested EIGRL NORM.
     for m in 1:n_out
         if norm_mode == "MAX"
-            max_val = _matrix_column_max_abs(mode_shapes_global, m)
+            max_val = maximum(abs.(mode_shapes_global[:, m]))
             if max_val > 1e-30
-                _scale_matrix_column!(mode_shapes_global, m, 1.0 / max_val)
+                mode_shapes_global[:, m] ./= max_val
             end
         else
             phi = mode_shapes[free_dofs, m]  # use analysis-frame eigenvector
             gen_mass = dot(phi, M_ff * phi)
             if gen_mass > 1e-30
                 scale = 1.0 / sqrt(gen_mass)
-                _scale_matrix_column!(mode_shapes_global, m, scale)
+                mode_shapes_global[:, m] .*= scale
             else
-                max_val = _matrix_column_max_abs(mode_shapes_global, m)
+                max_val = maximum(abs.(mode_shapes_global[:, m]))
                 if max_val > 1e-30
-                    _scale_matrix_column!(mode_shapes_global, m, 1.0 / max_val)
+                    mode_shapes_global[:, m] ./= max_val
                 end
             end
         end

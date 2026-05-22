@@ -905,6 +905,50 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     diagnostics["linear_solver"]["relative_residual"] = rel_residual
     log_msg("[SOLVER] Residual: |r|=$(r_norm), |r|/|F|=$rel_residual")
 
+    # JFEM_DUMP_SOLVE_STATE: env-var-gated dump of the actual solve-time state
+    # (free_dofs, K_ff stats, F_ff stats, u_ff stats) for post-hoc comparison
+    # against results["K"]/results["u_static"]/results["fixed_dofs"] when
+    # localising parity gaps. Path comes from the env var; "1"/"true" → stdout-only.
+    dump_target = get(ENV, "JFEM_DUMP_SOLVE_STATE", "")
+    if dump_target != ""
+        n_ff = length(free_dofs)
+        Fz_F_ff = sum(F_ff[i] for (i,d) in enumerate(free_dofs) if (d-1) % 6 == 2; init=0.0)
+        Fz_u_ff = sum(u_ff[i] for (i,d) in enumerate(free_dofs) if (d-1) % 6 == 2; init=0.0)
+        K_ff_diag_norm = norm(diag(K_ff))
+        K_ff_trace = sum(K_ff[i,i] for i in 1:n_ff; init=0.0)
+        U_internal = 0.5 * dot(u_ff, K_ff * u_ff)
+        do_file = !(lowercase(strip(dump_target)) in ("1", "true", "yes", "stdout"))
+        io = do_file ? open(dump_target, "a") : stdout
+        try
+            println(io, "=" ^ 70)
+            println(io, "JFEM_DUMP_SOLVE_STATE @ apply_bc_and_solve (post-solve)")
+            println(io, "=" ^ 70)
+            println(io, "n_dof_total          = ", ndof)
+            println(io, "n_free_dofs          = ", n_ff)
+            println(io, "n_fixed_dofs         = ", length(fixed_dofs))
+            println(io, "n_enforced_dofs      = ", length(enforced_dofs))
+            println(io, "enforced_values_norm = ", isempty(enforced_values) ? 0.0 : norm(enforced_values))
+            println(io, "|F_applied|          = ", norm(F_applied))
+            println(io, "|F_ff| (post-enforced corr) = ", norm(F_ff))
+            println(io, "Fz_F_ff (sum z-components)  = ", Fz_F_ff)
+            println(io, "|u_ff|               = ", norm(u_ff))
+            println(io, "Fz_u_ff (sum z-components)  = ", Fz_u_ff)
+            println(io, "|K_ff diag|          = ", K_ff_diag_norm)
+            println(io, "trace(K_ff)          = ", K_ff_trace)
+            println(io, "|K_ff*u_ff - F_ff|   = ", r_norm)
+            println(io, "|r|/|F_ff|           = ", rel_residual)
+            println(io, "U_internal = 1/2 u'·K·u = ", U_internal)
+            println(io, "factor backend       = ", diagnostics["linear_solver"]["backend"])
+            println(io, "free_dofs[1:min(20,end)] = ", free_dofs[1:min(20, n_ff)])
+            println(io, "fixed_dofs (sorted, [1:min(20,end)]) = ", sort(collect(fixed_dofs))[1:min(20, length(fixed_dofs))])
+            println(io, "F_ff[1:min(8,end)]   = ", F_ff[1:min(8, n_ff)])
+            println(io, "u_ff[1:min(8,end)]   = ", u_ff[1:min(8, n_ff)])
+            println(io)
+        finally
+            do_file && close(io)
+        end
+    end
+
     if cache_enabled && cache_key !== nothing && solve_factor !== nothing &&
        diagnostics["linear_solver"]["strategy"] == "direct"
         linear_cache[cache_key] = LinearSolveCacheEntry(
@@ -941,6 +985,27 @@ function apply_bc_and_solve(K, ndof, model, id_map, F_applied, node_R, rbe3_map,
     end
     if n_rbe3_recovered > 0
         log_msg("[SOLVER] RBE3: Recovered $n_rbe3_recovered dependent DOFs")
+    end
+
+    # Second JFEM_DUMP_SOLVE_STATE dump: u_global at function return (after
+    # enforced-disp + RBE3 recovery). u_global[free_dofs] should byte-match
+    # the u_ff dumped earlier; if it doesn't, the post-processing is the bug.
+    if dump_target != ""
+        u_global_ff = u_global[free_dofs]
+        do_file2 = !(lowercase(strip(dump_target)) in ("1", "true", "yes", "stdout"))
+        io2 = do_file2 ? open(dump_target, "a") : stdout
+        try
+            println(io2, "-" ^ 70)
+            println(io2, "JFEM_DUMP_SOLVE_STATE @ apply_bc_and_solve (RETURN)")
+            println(io2, "-" ^ 70)
+            println(io2, "|u_global|              = ", norm(u_global))
+            println(io2, "|u_global[free_dofs]|   = ", norm(u_global_ff))
+            println(io2, "u_global[free[1:8]]     = ", u_global_ff[1:min(8, length(u_global_ff))])
+            println(io2, "u_global[free] - u_ff norm = ", norm(u_global_ff - u_ff))
+            println(io2)
+        finally
+            do_file2 && close(io2)
+        end
     end
 
     return u_global, fixed_dofs, spc_dofs, diagnostics

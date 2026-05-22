@@ -32,8 +32,7 @@ function main(filename::String;
               export_json::Bool=false,
               export_vtk::Bool=false,
               export_hdf5::Bool=false,
-              export_jfem_binary::Bool=true,
-              export_report::Bool=true)
+              export_jfem_binary::Bool=true)
     if !isfile(filename)
         println("ERROR: File not found at: $filename")
         return
@@ -44,7 +43,7 @@ function main(filename::String;
         output_dir = joinpath(script_dir, "..", "output")
     end
     if !isdir(output_dir)
-        mkpath(output_dir)
+        mkdir(output_dir)
     end
 
     # --- Stage 1: BDF → Model Dict ---
@@ -104,9 +103,7 @@ function main(filename::String;
         "solve"       => t_solve,
         "export"      => t_export,
     )
-    if export_report
-        Base.invokelatest(export_markdown_report, results, filename, output_dir; timings=pipeline_timings)
-    end
+    export_markdown_report(results, filename, output_dir; timings=pipeline_timings)
 
     # --- Adjoint sensitivity (optional) ---
     adjoint_config = joinpath(dirname(abspath(filename)), "adjoint_config.json")
@@ -126,7 +123,6 @@ function main(filename::String;
             println(">>> Buckling adjoint results written to: $adj_output")
         end
     end
-    return results
 end
 
 # ============================================================================

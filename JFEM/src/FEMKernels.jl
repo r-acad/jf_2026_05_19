@@ -655,6 +655,24 @@ against JFEM's existing shell resultants (`Cm/Cb/Cs/Bmb`). It is intentionally a
 bridge implementation: enough to run probes and compare mode sets before adding
 ply-by-ply through-thickness material callbacks.
 """
+# =============================================================================
+# KERNEL: stiffness_quad4_mitc4_3d_resultant_matrices
+# STATUS: RESEARCH / RETAINED — director-based 3D degenerate-shell formulation
+#         (Bathe MITC4-3D). Last evaluated 2026-05-22 as global default →
+#         REJECTED (VTP_3wp_strain regressed −35%) but PARTIAL POSITIVE on
+#         HTP_3wp_strain (MAC 0.149 → 0.907). On master roadmap as future
+#         capability — DO NOT DELETE.
+# DISPATCHED FROM: assembly.jl line ~3589 when elem_mitc4_3d_kernel (i.e.
+#         JFEM_Q4_KERNEL=mitc4_3d, default "macneal" — branch DEAD under default).
+# CALIBRATION KNOBS (env, all opt-in): JFEM_Q4_MITC4_3D_SHEAR_MODE ("covariant"),
+#         JFEM_Q4_MITC4_3D_STRAIN_BASIS ("tangent"),
+#         JFEM_Q4_MITC4_3D_BENDING_MODE ("fiber"), JFEM_Q4_MITC4_3D_SHEAR_RBF,
+#         JFEM_Q4_MITC4_3D_SHEAR_SCALE / _MEMBRANE_SCALE / _BENDING_SCALE /
+#         _DRILL_SCALE / _BENDING_ZETA_DELTA.
+# RELATED: stiffness_quad4_mitc4_3d_ply_matrices (composite ply integration);
+#         many helper functions in FEMKernels.jl:252-660 (jacobians, B-matrices,
+#         shear tying rows, frame builders).
+# =============================================================================
 function stiffness_quad4_mitc4_3d_resultant_matrices(
     coords3d::AbstractMatrix,
     directors::AbstractMatrix,
@@ -678,6 +696,58 @@ function stiffness_quad4_mitc4_3d_resultant_matrices(
     bend_delta = min(max(abs(fem_env_float("JFEM_Q4_MITC4_3D_BENDING_ZETA_DELTA", 1e-4)), 1e-8), 1.0)
     shear_mode = lowercase(strip(get(ENV, "JFEM_Q4_MITC4_3D_SHEAR_MODE", "covariant")))
     macneal_shear = shear_mode in ("macneal", "rbf", "macneal_rbf", "plate_rbf")
+
+    # Phase 5c: in-place MacNeal-1978-style residual-bending-flexibility
+    # softening applied to Cs BEFORE the MITC covariant tying assembly. This
+    # keeps the MITC4 tying-point kinematics (unlike `SHEAR_MODE=macneal`,
+    # which substitutes the entire shear block) and only attenuates the
+    # transverse-shear stiffness by a per-element constant in each direction.
+    # Designed to counter the bending-block over-stiffness diagnosed in
+    # MITC4_3D_DERIVATION_NOTES.md §"2026-05-20 Phase 5b" (the covariant
+    # MITC4 tying pumps spurious stiffness into the θ_x, θ_y DOFs through
+    # the rotation-gradient coupling on curved geometry).
+    #
+    # Opt-in via:
+    #   JFEM_Q4_MITC4_3D_SHEAR_RBF = true
+    #   JFEM_Q4_MITC4_3D_SHEAR_RBF_SCALE = ζ   (default 1.0, matches MacNeal eq 26)
+    use_rbf_corr = lowercase(strip(get(ENV, "JFEM_Q4_MITC4_3D_SHEAR_RBF", "false"))) in ("1","true","yes","on")
+    rbf_scale_user = fem_env_float("JFEM_Q4_MITC4_3D_SHEAR_RBF_SCALE", 1.0)
+    Cs_eff = Cs
+    if use_rbf_corr && shear_scale != 0.0 && maximum(abs, Cs) >= 1e-30
+        # Element-centre covariant in-plane tangent vectors g_r = ∂x/∂ξ,
+        # g_s = ∂x/∂η for the natural-coordinate metric components and the
+        # physical spans L_x, L_y. NOTE: _mitc4_3d_surface_area_and_grads
+        # returns the *contravariant* bases (a^α = g^{αβ} g_β), which have
+        # 1/length units — using those here was the silent bug that left
+        # the RBF correction effectively inert in earlier drafts. Always
+        # take the covariant g_r, g_s from `_mitc4_3d_jacobian` directly.
+        _, _, _, g_r0, g_s0, _, _ = _mitc4_3d_jacobian(coords3d, directors, h, 0.0, 0.0, 0.0)
+        L_x_sq = 4.0 * (g_r0[1]^2 + g_r0[2]^2 + g_r0[3]^2)    # (2·|g_r|)²
+        L_y_sq = 4.0 * (g_s0[1]^2 + g_s0[2]^2 + g_s0[3]^2)    # physical spans
+        flex_x = 1.0 / max(abs(Cb[1,1]), 1e-30)
+        flex_y = 1.0 / max(abs(Cb[2,2]), 1e-30)
+        # MacNeal 1978 eq 26: per-direction residual-bending compliance added
+        # to the shear compliance. MacNeal's original form is
+        #   Z_b[α,α] = L_α² / (12·Cb_αα)
+        # with NO element-area factor — MacNeal's Δx,Δy are the physical spans
+        # along the strain axis. Earlier drafts of this block divided by
+        # `A_elem`, which is dimensionally invalid (Cs·Z_b becomes 1/area) and
+        # silently produced sx≈1 (no attenuation) on all square elements (see
+        # MITC4_3D_DERIVATION_NOTES.md §"2026-05-20 Phase 5c").
+        # The total shear compliance is 1/Cs + Z_b; the corrected shear
+        # stiffness is Cs_eff[α,α] = Cs[α,α] · s_α with
+        #   s_α = 1 / (1 + Cs[α,α] · Z_b[α,α]).
+        Zb_x = rbf_scale_user * L_x_sq * flex_x / 12.0
+        Zb_y = rbf_scale_user * L_y_sq * flex_y / 12.0
+        sx = 1.0 / (1.0 + abs(Cs[1,1]) * Zb_x)
+        sy = 1.0 / (1.0 + abs(Cs[2,2]) * Zb_y)
+        # Apply: Cs_eff = diag(√sx, √sy) · Cs · diag(√sx, √sy) so the diagonals
+        # scale by sx/sy directly and the cross term by sqrt(sx·sy).
+        sqx, sqy = sqrt(sx), sqrt(sy)
+        Cs_eff = [sx*Cs[1,1]      sqx*sqy*Cs[1,2];
+                  sqx*sqy*Cs[2,1] sy*Cs[2,2]]
+    end
+
     pt = 1.0 / sqrt(3.0)
     gauss_pts = (SVector(-pt,-pt), SVector(pt,-pt), SVector(pt,pt), SVector(-pt,pt))
 
@@ -730,7 +800,7 @@ function stiffness_quad4_mitc4_3d_resultant_matrices(
 
         if !macneal_shear && !shear_center_only && shear_scale != 0.0 && maximum(abs, Cs) >= 1e-30
             Bs .= quad4_mitc4_3d_selected_shear_rows(coords3d, directors, h, xi, eta)
-            ts_mul!(tmp2x24, Cs, Bs)
+            ts_mul!(tmp2x24, Cs_eff, Bs)
             ts_mul_At_add!(Ke, Bs, tmp2x24, dA * shear_scale)
         end
 
@@ -795,6 +865,15 @@ function stiffness_quad4_mitc4_3d_resultant_matrices(
     return Ke
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_mitc4_3d_ply_matrices
+# STATUS: RESEARCH / RETAINED — MITC4-3D variant with explicit ply-by-ply
+#         through-thickness integration (composite PCOMP). Sister of
+#         stiffness_quad4_mitc4_3d_resultant_matrices. Same status — rejected as
+#         global default, retained per master roadmap. DO NOT DELETE.
+# DISPATCHED FROM: assembly.jl line ~3576 when mitc4_3d_ply_integration && is_pcomp.
+# CALIBRATION KNOBS: same set as the resultant variant (JFEM_Q4_MITC4_3D_*).
+# =============================================================================
 function stiffness_quad4_mitc4_3d_ply_matrices(
     coords3d::AbstractMatrix,
     directors::AbstractMatrix,
@@ -823,6 +902,48 @@ function stiffness_quad4_mitc4_3d_ply_matrices(
     macneal_shear = shear_mode in ("macneal", "rbf", "macneal_rbf", "plate_rbf")
     ply_split = fem_env_bool("JFEM_Q4_MITC4_3D_PLY_SPLIT", false) ||
                 membrane_scale != 1.0 || bending_scale != 1.0
+
+    # Phase 5c — residual-bending-flexibility softening of the covariant
+    # shear, mirrored from `stiffness_quad4_mitc4_3d_resultant_matrices`.
+    # Opt-in via JFEM_Q4_MITC4_3D_SHEAR_RBF=true (default off). Cb_eff is
+    # reconstructed once from the ply stack via the standard CLT identity
+    #   D_ij = Σ_k (1/3)·(z_top^3 − z_bot^3)·Q̄_k_ij.
+    # See MITC4_3D_DERIVATION_NOTES.md §"2026-05-20 Phase 5c" for derivation.
+    use_rbf_corr = lowercase(strip(get(ENV, "JFEM_Q4_MITC4_3D_SHEAR_RBF", "false"))) in ("1","true","yes","on")
+    rbf_scale_user = fem_env_float("JFEM_Q4_MITC4_3D_SHEAR_RBF_SCALE", 1.0)
+    Cs_eff = Cs
+    if use_rbf_corr && shear_scale != 0.0 && maximum(abs, Cs) >= 1e-30 &&
+       ply_data !== nothing && !isempty(ply_data)
+        _, _, _, g_r, g_s, _, _ = _mitc4_3d_jacobian(coords3d, directors, h, 0.0, 0.0, 0.0)
+        L_x_sq = 4.0 * (g_r[1]^2 + g_r[2]^2 + g_r[3]^2)
+        L_y_sq = 4.0 * (g_s[1]^2 + g_s[2]^2 + g_s[3]^2)
+        Cb_eff_11 = 0.0
+        Cb_eff_22 = 0.0
+        for ply in ply_data
+            z_bot = Float64(ply["z_bot"])
+            z_top = Float64(ply["z_top"])
+            (z_top - z_bot) <= 0.0 && continue
+            Qbar = ply["Qbar"]
+            local_Q = Qbar
+            if abs(material_rotation) > 1e-12
+                Qb_copy = copy(Qbar)
+                rotate_constitutive_3x3!(Qb_copy, material_rotation)
+                local_Q = Qb_copy
+            end
+            factor = (z_top^3 - z_bot^3) / 3.0
+            Cb_eff_11 += factor * local_Q[1, 1]
+            Cb_eff_22 += factor * local_Q[2, 2]
+        end
+        flex_x = 1.0 / max(abs(Cb_eff_11), 1e-30)
+        flex_y = 1.0 / max(abs(Cb_eff_22), 1e-30)
+        Zb_x = rbf_scale_user * L_x_sq * flex_x / 12.0
+        Zb_y = rbf_scale_user * L_y_sq * flex_y / 12.0
+        sx = 1.0 / (1.0 + abs(Cs[1, 1]) * Zb_x)
+        sy = 1.0 / (1.0 + abs(Cs[2, 2]) * Zb_y)
+        sqx, sqy = sqrt(sx), sqrt(sy)
+        Cs_eff = [sx*Cs[1,1]      sqx*sqy*Cs[1,2];
+                  sqx*sqy*Cs[2,1] sy*Cs[2,2]]
+    end
 
     pt = 1.0 / sqrt(3.0)
     gp2 = (SVector(-pt, 1.0), SVector(pt, 1.0))
@@ -899,7 +1020,7 @@ function stiffness_quad4_mitc4_3d_ply_matrices(
         if !macneal_shear && !shear_center_only && shear_scale != 0.0 && maximum(abs, Cs) >= 1e-30
             _, _, _, dA, _, _ = _mitc4_3d_surface_area_and_grads(coords3d, directors, h, xi, eta)
             Bs .= quad4_mitc4_3d_selected_shear_rows(coords3d, directors, h, xi, eta)
-            ts_mul!(tmp2x24, Cs, Bs)
+            ts_mul!(tmp2x24, Cs_eff, Bs)
             ts_mul_At_add!(Ke, Bs, tmp2x24, max(dA, 1e-12) * shear_scale)
         end
 
@@ -1323,6 +1444,13 @@ end
     return b
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4 (E/nu/h convenience constructor)
+# STATUS: PRODUCTION (sensitivity path) - wraps stiffness_quad4_matrices for
+#         dKdx.jl finite-difference sensitivities (optimization / adjoint).
+# DISPATCHED FROM: JFEM/src/solver/dKdx.jl lines ~207, 263, 291, 1075.
+# Not on the GAME default K assembly path.
+# =============================================================================
 function stiffness_quad4(coords, E, nu, h; bend_ratio=1.0, ts_t=5.0/6.0, k6rot=100.0, ws::Union{Nothing,Quad4Workspace}=nothing)
     const_mem = E * h / (1 - nu^2)
     Cm = const_mem .* [1 nu 0; nu 1 0; 0 0 (1-nu)/2]
@@ -1337,6 +1465,11 @@ function stiffness_quad4(coords, E, nu, h; bend_ratio=1.0, ts_t=5.0/6.0, k6rot=1
     return stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E; bend_ratio=bend_ratio, k6rot=k6rot, ws=ws)
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_generic (E/nu/h variant, calls _default_generic)
+# STATUS: PRODUCTION (sensitivity path) - used by dKdx.jl for variable
+#         differentiation through (E, nu).
+# =============================================================================
 function stiffness_quad4_generic(coords, E, nu, h; bend_ratio=1.0, ts_t=5.0/6.0, k6rot=100.0)
     T = promote_type(typeof(E), typeof(nu), typeof(h))
     oneT = one(T)
@@ -1354,6 +1487,10 @@ function stiffness_quad4_generic(coords, E, nu, h; bend_ratio=1.0, ts_t=5.0/6.0,
     return stiffness_quad4_default_generic(coords, Cm, Cb, Cs, h, G; k6rot=k6rot)
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_default_generic (internal of stiffness_quad4_generic)
+# STATUS: INTERNAL - called only by stiffness_quad4_generic.
+# =============================================================================
 function stiffness_quad4_default_generic(coords, Cm, Cb, Cs, h, G_ref; k6rot=100.0)
     T = promote_type(eltype(Cm), eltype(Cb), eltype(Cs), typeof(h), typeof(G_ref))
     zeroT = zero(T)
@@ -1418,7 +1555,17 @@ function stiffness_quad4_default_generic(coords, Cm, Cb, Cs, h, G_ref; k6rot=100
     phi2_alpha = PHI2_ALPHA[]
     L_char_sq = max(4.0 * abs_detJc, 1e-30)
     phi2_trial = T(phi2_alpha) * h^2 / T(L_char_sq)
-    phi2_shear = phi2_alpha > 0.0 ? min(oneT, phi2_trial) : oneT
+    # Branch on real(phi2_trial) so the saturation min() stays complex-step
+    # clean — `min` on ComplexF64 throws MethodError because complex numbers
+    # are not ordered. real() is the identity on Float64 and preserves the
+    # imaginary perturbation on ComplexF64; the saturated branch drops to
+    # a pure real `oneT`, which is the correct CS derivative (constant
+    # function ⇒ zero derivative).
+    phi2_shear = if phi2_alpha > 0.0
+        real(phi2_trial) < 1.0 ? phi2_trial : oneT
+    else
+        oneT
+    end
 
     alpha_drill = (T(k6rot) / T(1e5)) * G_ref * h
 
@@ -1498,7 +1645,11 @@ function stiffness_quad4_default_generic(coords, Cm, Cb, Cs, h, G_ref; k6rot=100
         K_bb .+= (Bi' * Cm * Bi) .* abs_detJ
     end
 
-    if maximum(abs, K_bb) > zeroT
+    # `maximum(abs, K_bb)` is always a non-negative real; compare against a
+    # real zero so the guard stays complex-step clean. The previous form
+    # `> zeroT` failed for ComplexF64 because `zeroT = 0 + 0im` is not
+    # ordered against a real.
+    if maximum(abs, K_bb) > 0.0
         Ke .-= K_ab * (K_bb \ K_ab')
     end
 
@@ -1743,6 +1894,13 @@ end
     return Bi
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_membrane_enhanced_matrices
+# STATUS: RESEARCH / RETAINED - alternative membrane formulation with enhanced
+#         interpolation (Wilson incompatible modes variant). Not on the default
+#         GAME path; may be useful for distorted membrane meshes.
+# CALLERS: none in current codebase - opt-in via direct call from research scripts.
+# =============================================================================
 function stiffness_quad4_membrane_enhanced_matrices(
     coords,
     Cm,
@@ -1906,6 +2064,11 @@ end
     return dNr, dNs
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_membrane_normal_rot_matrices
+# STATUS: INTERNAL - DKMQ membrane block (Allman-style drilling + Ibrahimbegovic
+#         skew-symmetric rotation). Used by stiffness_quad4_plate_dkmq_matrices.
+# =============================================================================
 function stiffness_quad4_membrane_normal_rot_matrices(
     coords,
     Cm,
@@ -2055,6 +2218,14 @@ function stiffness_quad4_membrane_normal_rot_matrices(
     return Ke
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_membrane_hybrid_stress_matrices
+# STATUS: RESEARCH / RETAINED - Pian-Tong hybrid stress membrane (DKMQ24-2+).
+#         Better accuracy on coarse / distorted meshes. Used by the
+#         exact_membrane_operator path inside stiffness_quad4_matrices.
+# DISPATCHED FROM: stiffness_quad4_matrices when exact_membrane_operator
+#         (gated by JFEM_SOL105_EIG_FLAT_*_EXACT_MEMBRANE, all default false).
+# =============================================================================
 function stiffness_quad4_membrane_hybrid_stress_matrices(
     coords,
     Cm,
@@ -2193,6 +2364,13 @@ function quad4_hybrid_stress_modes!(P::AbstractMatrix, J0, xi::Float64, eta::Flo
     return P
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_bending_hybrid_stress_matrices
+# STATUS: RESEARCH / NO CURRENT CALLERS - Pian-Tong hybrid stress for bending
+#         (assumed-moment field). Not currently called from any production or
+#         research dispatcher. Retained as a building block for future hybrid
+#         stress shell formulations.
+# =============================================================================
 function stiffness_quad4_bending_hybrid_stress_matrices(coords, Cb)
     Ke = zeros(24, 24)
     maximum(abs, Cb) < 1e-30 && return Ke
@@ -2250,6 +2428,11 @@ function stiffness_quad4_bending_hybrid_stress_matrices(coords, Cb)
     return Ke
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_membrane_bending_hybrid_stress_matrices
+# STATUS: RESEARCH / RETAINED - coupled membrane+bending hybrid stress.
+#         Called by stiffness_quad4_huwashizu_matrices.
+# =============================================================================
 function stiffness_quad4_membrane_bending_hybrid_stress_matrices(coords, Cm, Cb, Bmb=nothing)
     C6 = zeros(6, 6)
     @inbounds for j in 1:3, i in 1:3
@@ -2327,6 +2510,12 @@ function stiffness_quad4_membrane_bending_hybrid_stress_matrices(coords, Cm, Cb,
     return Ke
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_mitc_shear_drill_matrices
+# STATUS: RESEARCH / RETAINED - standalone MITC4 shear + drilling block, used
+#         as a building block in the Hu-Washizu chain.
+# DISPATCHED FROM: stiffness_quad4_huwashizu_matrices.
+# =============================================================================
 function stiffness_quad4_mitc_shear_drill_matrices(
     coords,
     Cm,
@@ -2485,6 +2674,11 @@ function stiffness_quad4_mitc_shear_drill_matrices(
     return Ke
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_shear_hybrid_stress_matrices
+# STATUS: RESEARCH / RETAINED - assumed-stress shear formulation. Used by the
+#         Hu-Washizu shear-hybrid mode.
+# =============================================================================
 function stiffness_quad4_shear_hybrid_stress_matrices(coords, Cs)
     Ke = zeros(24, 24)
     maximum(abs, Cs) < 1e-30 && return Ke
@@ -2640,6 +2834,20 @@ end
     return max_dev <= 1e-6 * L
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_huwashizu_full_matrices
+# STATUS: RESEARCH / RETAINED — mixed Hu-Washizu variational formulation
+#         (independent stress, strain, displacement fields). Theoretically a
+#         strong cure for shear/volumetric locking; basis of high-performance
+#         shell elements in TACS and similar codes. Tested 2026-05-22 as GAME
+#         alternative → regressed (single calibration tried, not exhaustive).
+#         Retained for future calibration work. DO NOT DELETE without revisiting.
+# DISPATCHED FROM: stiffness_quad4_huwashizu_matrices when JFEM_Q4_KERNEL=huwashizu.
+# CALIBRATION KNOBS: n_extra (mixed-mode count, default 11);
+#         JFEM_Q4_HUWASHIZU_SHEAR_MODE ("hybrid"/"stress"/"huwashizu").
+# CHAIN: this is the "full" HW. The dispatcher stiffness_quad4_huwashizu_matrices
+#         wraps it and combines with MITC shear/drilling for the partial-HW path.
+# =============================================================================
 function stiffness_quad4_huwashizu_full_matrices(
     coords,
     Cm,
@@ -2870,6 +3078,17 @@ function stiffness_quad4_huwashizu_full_matrices(
     return transpose(G) * (S_eff \ G)
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_huwashizu_matrices
+# STATUS: RESEARCH / RETAINED — Hu-Washizu dispatcher. Combines stiffness_quad4_huwashizu_full_matrices
+#         (mixed full kernel) with MITC4 shear/drilling and hybrid-stress
+#         add-ons. Reached only via JFEM_Q4_KERNEL=huwashizu (off by default).
+# DISPATCHED FROM: stiffness_quad4_matrices line ~3154 when huwashizu_kernel.
+# CALLS: stiffness_quad4_huwashizu_full_matrices, stiffness_quad4_mitc_shear_drill_matrices,
+#         stiffness_quad4_membrane_bending_hybrid_stress_matrices,
+#         stiffness_quad4_shear_hybrid_stress_matrices.
+# CALIBRATION KNOBS: JFEM_Q4_HUWASHIZU_SHEAR_MODE, k6rot, drill_scale, Bmb.
+# =============================================================================
 function stiffness_quad4_huwashizu_matrices(
     coords,
     Cm,
@@ -2942,9 +3161,27 @@ function stiffness_quad4_huwashizu_matrices(
     return Ke
 end
 
-# Performance-optimized QUAD4 stiffness with optional pre-allocated workspace.
-# When ws is provided, eliminates ALL heap allocations in the hot loop (~5M saved across model).
-
+# =============================================================================
+# KERNEL: stiffness_quad4_matrices
+# STATUS: PRODUCTION — primary Q4 shell stiffness, fires for every default-path
+#         element in GAME SOL 105 (live trace 2026-05-22 confirms).
+# DISPATCHED FROM: assembly.jl `else` fallback (line ~3744), plus several
+#         explicit branches for iso/PCOMP curved-shell variants.
+# CALLS: add_quad4_macneal_shear_rbf! (when macneal_kernel=true);
+#        stiffness_quad4_huwashizu_matrices (when JFEM_Q4_KERNEL=huwashizu);
+#        stiffness_quad4_min4_bending_shear (when JFEM_Q4_KERNEL=min4);
+#        stiffness_quad4_membrane_hybrid_stress_matrices (when exact_membrane_operator);
+#        many internal Bm/Bb/Bs/Bd inline assemblies.
+# CALIBRATION KNOBS (env): JFEM_Q4_KERNEL (default "macneal"), JFEM_Q4_SHEAR_ROTATION_SCALE,
+#        JFEM_Q4_MACNEAL_*, JFEM_Q4_MARGUERRE_WARP_TO_UZ, PHI2_ALPHA (module Ref).
+# KEYWORD ARGS (caller-controlled): bend_ratio, k6rot, drill_scale, shear_center_only,
+#        bending_incomp, membrane_incomp, curvature_membrane, slope_membrane, coords_3d,
+#        exact_membrane_operator, selective_shear, exact_side_shear, exact_side_rotcorr,
+#        macneal_rigid_shear, marguerre_warp_to_uz, min4_disable, kernel_planar.
+# LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
+# Pre-allocated workspace `ws` eliminates ALL heap allocations in the hot loop
+# (~5M alloc saved across HTP_launch).
+# =============================================================================
 function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, k6rot=100.0, drill_scale::Float64=1.0, Bmb=nothing, ws::Union{Nothing,Quad4Workspace}=nothing, bending_incomp::Bool=false, shear_center_only::Bool=false, no_phi2::Bool=false, membrane_incomp::Bool=true, curvature_membrane=nothing, membrane_shear_center_row::Bool=false, material_shear_rotation::Float64=0.0, membrane_assumed_mode::Symbol=:none, membrane_incomp_center_jacobian::Bool=false, selective_shear::Bool=false, selective_shear_mode::Symbol=:all, exact_side_shear::Bool=false, exact_side_rotcorr::Bool=false, exact_membrane_operator::Bool=false, exact_membrane_curvature_w_coupling::Bool=false, slope_membrane=nothing, coords_3d::Union{Nothing,AbstractMatrix}=nothing, kernel_planar::Bool=true, macneal_rigid_shear::Bool=false, marguerre_warp_to_uz::Bool=false, min4_disable::Bool=false)
     # Allow env-var override for marguerre_warp_to_uz so it can be enabled
     # globally without plumbing through every caller. Currently the assembly
@@ -3776,7 +4013,7 @@ function stiffness_quad4_matrices(coords, Cm, Cb, Cs, h, E_ref; bend_ratio=1.0, 
     # MacNeal 1978 warp correction (opt-in, partial). Activated only when:
     #   - JFEM_MACNEAL_WARP_ALPHA env var is set to a non-zero float
     #   - coords_3d is supplied (caller knows the 3D corner positions)
-    # Calibrated against a warped-quad sweep: closes
+    # Reverse-engineered from `NAST705/probes/jfem_warp_lc_sweep.jl`: closes
     # ~70% of K[θ_x, T_x] warp gap on the iso warped probe at α=-1/3.
     # Default 0.0 = no correction = original JFEM behavior.
     if coords_3d !== nothing
@@ -4167,6 +4404,12 @@ end
     return abs_detJ
 end
 
+# =============================================================================
+# KERNEL: add_quad4_plate_dkmq_exact_shear!
+# STATUS: RESEARCH / RETAINED - DKMQ exact side-shear add-on. Used internally
+#         by stiffness_quad4_matrices when exact_side_shear=true (kwarg, gated
+#         by JFEM_SOL105_EIG_FLAT_PCOMP_EXACT_SIDE_SHEAR, default false).
+# =============================================================================
 function add_quad4_plate_dkmq_exact_shear!(
     Ke::AbstractMatrix,
     coords::AbstractMatrix,
@@ -4260,6 +4503,13 @@ end
 # Membrane/drilling can be obtained by calling stiffness_quad4_matrices with
 # Cb=0, Cs=0.
 # ---------------------------------------------------------------------------
+# =============================================================================
+# KERNEL: stiffness_quad4_min4_bending_shear
+# STATUS: RESEARCH / RETAINED - Tessler-Hughes 1983 MIN4 anisoparametric
+#         bending+shear (biquadratic w + bilinear theta, eq 4.21 phi^2). Used when
+#         JFEM_Q4_KERNEL=min4 (off by default). MYSTRAN-aligned formulation.
+# CALIBRATION KNOBS: JFEM_MIN4_CBMIN4 (default 3.6).
+# =============================================================================
 function stiffness_quad4_min4_bending_shear(
     coords::AbstractMatrix{Float64},
     Cb::AbstractMatrix{Float64},
@@ -4435,6 +4685,20 @@ function stiffness_quad4_min4_bending_shear(
     return Ke, bensum, shrsum, phi_sq
 end
 
+# =============================================================================
+# KERNEL: add_quad4_macneal_shear_rbf!
+# STATUS: PRODUCTION — fires for every default-path element with macneal_kernel=true
+#         (which is the default JFEM_Q4_KERNEL value). Reference formulation
+#         used by Nastran CQUAD4.
+# DISPATCHED FROM: stiffness_quad4_matrices line ~3798 when macneal_kernel.
+# CALIBRATION KNOBS (env): JFEM_Q4_MACNEAL_RBF (off by default — the in-RBF
+#         calculation here is *always* done; the env enables a DIFFERENT in-line
+#         RBF in stiffness_quad4_matrices at line ~3406);
+#         JFEM_Q4_MACNEAL_EPSILON (0.04), JFEM_Q4_MACNEAL_RBF_ZB_SCALE,
+#         JFEM_Q4_MACNEAL_RBF_ZB_UNIFORM_SCALE, JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE,
+#         JFEM_Q4_MACNEAL_RBF_BENDING_FLEX_MODE ("diag"), JFEM_Q4_MACNEAL_RBF_LENGTH_MODE ("paper").
+# LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
+# =============================================================================
 # ---------------------------------------------------------------------------
 # MacNeal 1978 CQUAD4 transverse shear with residual bending flexibility
 # (Comp. Struct. 8:175-183). Reference formulation used by Nastran CQUAD4.
@@ -4586,7 +4850,7 @@ function add_quad4_macneal_shear_rbf!(
     # CQUAD4 per-element K to within 3-5% across all flat-shell MAT1/MAT8/PCOMP
     # probes (aspect 1-20, thickness h/L 0.001-0.033, orthotropy E1/E2 1-20,
     # laminate 3-17 plies). JFEM's prior default of 1.0 over-applied the
-    # MacNeal RBF by ~50%. Promoted to default 2026-05-14 after validation
+    # MacNeal RBF by ~50%. Promoted to default 2026-05-14 after GAME validation
     # showed zero parity change at this value (mean 6.40%, max 17.81%
     # unchanged) — the K/Kg cascade absorbs the per-element K shift for
     # SOL105 eigenvalues, but per-element K parity improves substantially.
@@ -4603,36 +4867,60 @@ function add_quad4_macneal_shear_rbf!(
     end
     zb_scale_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_SCALE", string(default_zb_scale))))
     zb_scale = zb_scale_raw === nothing ? default_zb_scale : max(zb_scale_raw, 1e-12)
+    # ---------------------------------------------------------------------
+    # Per-direction RBF decomposition (added 2026-05-22).
+    # The 2×2 sub-block Zb_xx (and Zb_yy) on the γ_x (γ_y) samples has two
+    # physical eigendirections:
+    #   * UNIFORM γ direction (eigenvalue diag + off = 2·zb_u·c) — excited by
+    #     "uniform-rotation" modes where γ is constant across the element.
+    #     diff_kg_1elem_curved_bending_modes.jl shows these K_bb modes are
+    #     1.50× Nastran at zb_scale=0.667; setting zb_u=1.0 closes that gap
+    #     exactly for the single-element diagnostic.
+    #   * DIFFERENTIAL γ direction (eigenvalue diag − off = 2·zb_d·anisotropy·c)
+    #     — excited by physical bending modes. Already matches Nastran.
+    # GAME-corpus test 2026-05-22 with zb_u=1.0 default: HTP_launch 511002
+    # mode-1 lambda did NOT change (+9.09% vs +9.10% baseline) and mean got
+    # slightly worse (2.42 → 2.51%). So the K/Kg cascade absorbs the
+    # uniform-γ K_bb shift for real curved-shell buckling modes.
+    # Production default keeps zb_u = zb_d = zb_scale (legacy behavior); the
+    # split is exposed for per-element / per-physics calibration work.
+    zb_u_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_UNIFORM_SCALE", "")))
+    zb_d_raw = tryparse(Float64, strip(get(ENV, "JFEM_Q4_MACNEAL_RBF_ZB_DIFF_SCALE",    "")))
+    zb_u = zb_u_raw === nothing ? zb_scale : max(zb_u_raw, 1e-12)
+    zb_d = zb_d_raw === nothing ? zb_scale : max(zb_d_raw, 1e-12)
     if per_gp_delta && !swap_xy
         # Per-GP Δ at each shear sampling point. pt_delta[1,2] are γ_x x-extents;
         # pt_delta[3,4] are γ_y y-extents.
         Δa = pt_delta[1]; Δb = pt_delta[2]
         Δc = pt_delta[3]; Δd = pt_delta[4]
-        scl_x = zb_scale * inv_12A * flex_x
-        scl_y = zb_scale * inv_12A * flex_y
-        Zb[1,1] = scl_x * (1.0 + a_param) * Δa * Δa
-        Zb[2,2] = scl_x * (1.0 + a_param) * Δb * Δb
-        Zb[1,2] = scl_x * (1.0 - a_param) * Δa * Δb
+        sxu = zb_u * inv_12A * flex_x
+        sxd = zb_d * inv_12A * flex_x * a_param
+        syu = zb_u * inv_12A * flex_y
+        syd = zb_d * inv_12A * flex_y * b_param
+        Zb[1,1] = (sxu + sxd) * Δa * Δa
+        Zb[2,2] = (sxu + sxd) * Δb * Δb
+        Zb[1,2] = (sxu - sxd) * Δa * Δb
         Zb[2,1] = Zb[1,2]
-        Zb[3,3] = scl_y * (1.0 + b_param) * Δc * Δc
-        Zb[4,4] = scl_y * (1.0 + b_param) * Δd * Δd
-        Zb[3,4] = scl_y * (1.0 - b_param) * Δc * Δd
+        Zb[3,3] = (syu + syd) * Δc * Δc
+        Zb[4,4] = (syu + syd) * Δd * Δd
+        Zb[3,4] = (syu - syd) * Δc * Δd
         Zb[4,3] = Zb[3,4]
     else
-        # Legacy MacNeal eq (26) with averaged Δx, Δy. Kept under env override
-        # for ablation; also used when the diagnostic Δx/Δy swap is requested.
-        zbx_diag = zb_scale * inv_12A * (1.0 + a_param) * Lx2_rbf * flex_x
-        zbx_off  = zb_scale * inv_12A * (1.0 - a_param) * Lx2_rbf * flex_x
-        zby_diag = zb_scale * inv_12A * (1.0 + b_param) * Ly2_rbf * flex_y
-        zby_off  = zb_scale * inv_12A * (1.0 - b_param) * Ly2_rbf * flex_y
-        Zb[1,1] = zbx_diag
-        Zb[1,2] = zbx_off
-        Zb[2,1] = zbx_off
-        Zb[2,2] = zbx_diag
-        Zb[3,3] = zby_diag
-        Zb[3,4] = zby_off
-        Zb[4,3] = zby_off
-        Zb[4,4] = zby_diag
+        # Legacy MacNeal eq (26) with averaged Δx, Δy, decomposed into
+        # uniform (zb_u) and differential (zb_d · anisotropy) directions.
+        # Reduces exactly to the single-scale formula when zb_u = zb_d.
+        zbx_u = zb_u * inv_12A * Lx2_rbf * flex_x
+        zbx_d = zb_d * inv_12A * a_param * Lx2_rbf * flex_x
+        zby_u = zb_u * inv_12A * Ly2_rbf * flex_y
+        zby_d = zb_d * inv_12A * b_param * Ly2_rbf * flex_y
+        Zb[1,1] = zbx_u + zbx_d
+        Zb[1,2] = zbx_u - zbx_d
+        Zb[2,1] = Zb[1,2]
+        Zb[2,2] = Zb[1,1]
+        Zb[3,3] = zby_u + zby_d
+        Zb[3,4] = zby_u - zby_d
+        Zb[4,3] = Zb[3,4]
+        Zb[4,4] = Zb[3,3]
     end
 
     # Physical shear compliance (eq 23-25)
@@ -4711,7 +4999,7 @@ end
 Apply a partial reverse-engineering of MacNeal 1978's warp correction to an
 element K matrix that was computed on the projected (flat-best-fit) quad.
 
-For the warped-quad calibration, Convention G (this function):
+Per `NAST705/probes/jfem_warp_lc_sweep.jl`, Convention G (this function):
 adding rigid-offset translation↔rotation coupling scaled by α at each corner's
 warp height z_i (signed distance from the mean plane, in element-local frame)
 matches Nastran KGG[θ_x, T_x] within 4–12% on a single warped iso CQUAD4 test.
@@ -4938,6 +5226,15 @@ end
     )
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_plate_adini_matrices
+# STATUS: RESEARCH / RETAINED - classical Adini rectangular plate bending
+#         element. Restricted to axis-aligned rectangles (falls back to DKQ
+#         otherwise). Useful for purely rectangular thin-plate meshes.
+# DISPATCHED FROM: assembly.jl when elem_rect_plate_branch (gated by
+#         JFEM_SOL105_EIG_FLAT_PCOMP_RECT_ADINI, default false).
+# Geometric counterpart: geometric_stiffness_quad4_plate_adini.
+# =============================================================================
 function stiffness_quad4_plate_adini_matrices(
     coords,
     Cm,
@@ -5069,6 +5366,11 @@ function stiffness_quad4_plate_adini_matrices(
     return Ke
 end
 
+# =============================================================================
+# KERNEL: geometric_stiffness_quad4_plate_adini (sigma_mem::Vector overload)
+# STATUS: RESEARCH / RETAINED - Adini K_g counterpart, fires only when
+#         elem_rect_plate_branch is active (dead under default).
+# =============================================================================
 function geometric_stiffness_quad4_plate_adini(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Float64)
     sigma_gp = zeros(4, 3)
     @inbounds for gp in 1:4
@@ -5079,6 +5381,7 @@ function geometric_stiffness_quad4_plate_adini(coords::AbstractMatrix, sigma_mem
     return geometric_stiffness_quad4_plate_adini(coords, sigma_gp, h)
 end
 
+# Per-GP stress field overload of the above. Same research status.
 function geometric_stiffness_quad4_plate_adini(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64)
     Kg = zeros(24, 24)
     h < 1e-30 && return Kg
@@ -5150,6 +5453,11 @@ function geometric_stiffness_quad4_plate_adini(coords::AbstractMatrix, sigma_mem
     return Kg
 end
 
+# =============================================================================
+# KERNEL: add_quad4_plate_dkq_bending!
+# STATUS: RESEARCH / RETAINED - DKQ bending block, used as a building block
+#         in plate_dkmq and plate_dkq kernels.
+# =============================================================================
 function add_quad4_plate_dkq_bending!(
     Ke::AbstractMatrix,
     coords,
@@ -5298,6 +5606,15 @@ function add_quad4_plate_dkq_bending!(
     return Ke
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_plate_dkq_matrices
+# STATUS: RESEARCH / RETAINED - classical Batoz DKQ flat-plate bending +
+#         MITC shear + compatible membrane. Locking-free for thin plates by
+#         construction. Useful for very thin flat composite laminates.
+# DISPATCHED FROM: assembly.jl when elem_flat_plate_branch (gated by
+#         JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_BRANCH, default false).
+# Geometric counterpart: geometric_stiffness_quad4_plate_dkq.
+# =============================================================================
 function stiffness_quad4_plate_dkq_matrices(
     coords,
     Cm,
@@ -5346,6 +5663,14 @@ function stiffness_quad4_plate_dkq_matrices(
     return add_quad4_plate_dkq_bending!(Ke, coords, Cb, Cs)
 end
 
+# =============================================================================
+# KERNEL: stiffness_quad4_plate_dkmq_matrices
+# STATUS: RESEARCH / RETAINED - DKMQ flat-plate (Batoz-Katili discrete Mindlin
+#         quadrilateral). Same regime as DKQ but with explicit shear correction.
+# DISPATCHED FROM: assembly.jl when elem_flat_dkmq_branch (gated by
+#         JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ, default false).
+# Geometric counterpart: geometric_stiffness_quad4_plate_dkmq.
+# =============================================================================
 function stiffness_quad4_plate_dkmq_matrices(
     coords,
     Cm,
@@ -5377,6 +5702,11 @@ function stiffness_quad4_plate_dkmq_matrices(
     return add_quad4_plate_dkq_bending!(Ke, coords, Cb, Cs, A_beta)
 end
 
+# =============================================================================
+# KERNEL: add_quad4_membrane_translation_geometric!
+# STATUS: INTERNAL - geometric-stiffness membrane-translation block used by
+#         the plate_dkq / plate_dkmq geometric stiffness variants.
+# =============================================================================
 function add_quad4_membrane_translation_geometric!(
     Kg::AbstractMatrix,
     coords::AbstractMatrix,
@@ -5439,6 +5769,11 @@ function add_quad4_membrane_translation_geometric!(
     return Kg
 end
 
+# =============================================================================
+# KERNEL: geometric_stiffness_quad4_plate_with_edge_relation
+# STATUS: INTERNAL - shared core of plate_dkq + plate_dkmq geometric kernels.
+#         Edge-relation projection unifies the two formulations.
+# =============================================================================
 function geometric_stiffness_quad4_plate_with_edge_relation(
     coords::AbstractMatrix,
     sigma_mem_gp::AbstractMatrix,
@@ -5534,6 +5869,11 @@ function geometric_stiffness_quad4_plate_with_edge_relation(
     return Kg
 end
 
+# =============================================================================
+# KERNEL: geometric_stiffness_quad4_plate_dkmq (sigma_mem::Vector overload)
+# STATUS: RESEARCH / RETAINED - plate DKMQ K_g counterpart, fires only when
+#         elem_flat_dkmq_branch is active (dead under default).
+# =============================================================================
 function geometric_stiffness_quad4_plate_dkmq(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Float64,
                                               Cb::AbstractMatrix, Cs::AbstractMatrix)
     sigma_gp = zeros(4, 3)
@@ -5545,6 +5885,7 @@ function geometric_stiffness_quad4_plate_dkmq(coords::AbstractMatrix, sigma_mem:
     return geometric_stiffness_quad4_plate_dkmq(coords, sigma_gp, h, Cb, Cs)
 end
 
+# Per-GP overload - same research status.
 function geometric_stiffness_quad4_plate_dkmq(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64,
                                               Cb::AbstractMatrix, Cs::AbstractMatrix)
     if h < 1e-30 || maximum(abs, Cb) < 1e-30
@@ -5554,6 +5895,11 @@ function geometric_stiffness_quad4_plate_dkmq(coords::AbstractMatrix, sigma_mem_
     return geometric_stiffness_quad4_plate_with_edge_relation(coords, sigma_mem_gp, h, A_beta, edge_c, edge_s)
 end
 
+# =============================================================================
+# KERNEL: geometric_stiffness_quad4_plate_dkq (sigma_mem::Vector overload)
+# STATUS: RESEARCH / RETAINED - plate DKQ K_g counterpart, fires only when
+#         elem_flat_plate_branch is active (dead under default).
+# =============================================================================
 function geometric_stiffness_quad4_plate_dkq(coords::AbstractMatrix, sigma_mem::AbstractVector, h::Float64,
                                              Cb::AbstractMatrix, Cs::AbstractMatrix)
     sigma_gp = zeros(4, 3)
@@ -5565,6 +5911,7 @@ function geometric_stiffness_quad4_plate_dkq(coords::AbstractMatrix, sigma_mem::
     return geometric_stiffness_quad4_plate_dkq(coords, sigma_gp, h, Cb, Cs)
 end
 
+# Per-GP overload - same research status.
 function geometric_stiffness_quad4_plate_dkq(coords::AbstractMatrix, sigma_mem_gp::AbstractMatrix, h::Float64,
                                              Cb::AbstractMatrix, Cs::AbstractMatrix)
     A_beta, edge_c, edge_s, _ = dkq_plate_edge_relation(coords, Cb, Cs)
@@ -7148,6 +7495,19 @@ function geometric_stiffness_rod(L::Float64, P::Float64)
     return kg
 end
 
+# =============================================================================
+# KERNEL: geometric_stiffness_quad4
+# STATUS: PRODUCTION — primary K_g kernel for SOL 105 buckling, fires for every
+#         default-path element (live trace 2026-05-22 confirms).
+# DISPATCHED FROM: assembly.jl `else` fallback in K_g dispatch (~line 5912).
+# CALLS: geometric_stiffness_quad4_covariant when JFEM_SOL105_EIG_CURVED_JACOBIAN.
+# CALIBRATION KNOBS: trans_mode, curvature_sign, rot_grad_scale, Cs/Cb scaling
+#         pass-through; env JFEM_SOL105_EIG_CURVED_KG_*.
+# Method dispatches: this is the (sigma_mem::Vector) variant — averaged membrane
+#         stress; the (sigma_mem_gp::Matrix) variant at line ~7302 handles per-GP
+#         stress fields.
+# LAST VALIDATED: 2026-05-22 (GAME mean 2.42% / max 9.10%).
+# =============================================================================
 # Geometric stiffness for CQUAD4 shell element (24×24)
 # Uses membrane stress state [σxx, σyy, σxy] from SOL101.
 # coords = 4×2 local coordinates (same as stiffness computation).

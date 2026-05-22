@@ -1,4 +1,53 @@
 # assembly.jl — Global stiffness matrix assembly
+#
+# =============================================================================
+# Q4 KERNEL DISPATCH OVERVIEW
+# =============================================================================
+# `assemble_stiffness` iterates every CQUAD4 element and picks ONE of the
+# stiffness kernels defined in FEMKernels.jl. The dispatch chain lives around
+# line 3570-3744 (K) and 5800-5920 (K_g). This block documents what the chain
+# actually does. Update this block when the dispatch logic changes.
+#
+# Read the file as: "for each element, walk the chain top-down; the first
+# branch whose condition is true wins". The fallback `else` at the end is the
+# production default (`stiffness_quad4_matrices` / `geometric_stiffness_quad4`).
+#
+# Per-element K stiffness dispatch (see line ~3570):
+#
+#  # | Condition                                       | Kernel called                              | Default? | Notes
+# ---+-------------------------------------------------+--------------------------------------------+----------+------
+#  1 | elem_mitc4_3d_kernel                            | stiffness_quad4_mitc4_3d_{ply,resultant}   | OFF      | JFEM_Q4_KERNEL=mitc4_3d (default "macneal")
+#  2 | elem_shear_center_only && is_iso_ei             | stiffness_quad4_matrices (center+blend)    | ON*      | Iso curved-shell in K_eig path
+#  3 | elem_flat_dkmq_branch                           | stiffness_quad4_plate_dkmq_matrices        | OFF      | JFEM_SOL105_EIG_FLAT_PCOMP_DKMQ
+#  4 | elem_rect_plate_branch                          | stiffness_quad4_plate_adini_matrices       | OFF      | JFEM_SOL105_EIG_FLAT_PCOMP_RECT_ADINI
+#  5 | elem_flat_plate_branch                          | stiffness_quad4_plate_dkq_matrices         | OFF      | JFEM_SOL105_EIG_FLAT_PCOMP_PLATE_BRANCH
+#  6 | elem_shear_center_only && is_pcomp_ei (flat)    | stiffness_quad4_matrices (center+blend)    | ON*      | Composite curved-shell in K_eig path
+#  7 | elem_curved_iso_blend > 0.0                     | stiffness_quad4_matrices (curved blend)    | partial  | Iso curved blend factor
+#  8 | else (fallback)                                 | stiffness_quad4_matrices                   | ON       | Production default — covers everything else
+#
+# Per-element K_g (geometric) dispatch (see line ~5800):
+#
+#  # | Condition                                       | Kernel called                              | Default?
+# ---+-------------------------------------------------+--------------------------------------------+---------
+#  1 | kg_flat_dkmq_branch && is_pcomp_ei              | geometric_stiffness_quad4_plate_dkmq       | OFF (coupled to K#3)
+#  2 | elem_rect_plate_branch && is_pcomp_ei           | geometric_stiffness_quad4_plate_adini      | OFF (coupled to K#4)
+#  3 | elem_flat_plate_branch                          | geometric_stiffness_quad4_plate_dkq        | OFF (coupled to K#5)
+#  4 | JFEM_SOL105_EIG_CURVED_JACOBIAN && coords_3d    | geometric_stiffness_quad4_covariant        | OFF
+#  5 | else (fallback)                                 | geometric_stiffness_quad4                  | ON
+#
+# Live trace (2026-05-22) on HTP_launch GAME deck (10,274 PCOMP CQUAD4) under
+# default settings confirms ONLY these 3 kernels actually fire:
+#   - stiffness_quad4_matrices       (K, branch #8 fallback)
+#   - add_quad4_macneal_shear_rbf!   (internal, called from stiffness_quad4_matrices)
+#   - geometric_stiffness_quad4      (K_g, branch #5 fallback)
+#
+# Everything else in this dispatch chain is RESEARCH / RETAINED — opt-in via
+# JFEM_Q4_KERNEL or JFEM_SOL105_EIG_FLAT_PCOMP_* env vars. See FEMKernels.jl
+# header banners on each kernel for status and calibration knobs.
+#
+# *ON in K_eig path only (shear_center_only=true). With JFEM_SOL105_USE_STATIC_K
+# default true, K_eig == K_static so branches #2 and #6 reduce to #8.
+# =============================================================================
 
 @inline function curved_iso_eig_fullshear_blend()
     raw = get(ENV, "JFEM_CURVED_ISO_EIG_FULLSHEAR_BLEND", "1.0")
@@ -2799,7 +2848,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # curved meshes like VTP still need a real curved-aware MacNeal kernel.
         macneal_warp_tol = max(solver_env_float("JFEM_Q4_MACNEAL_WARP_TOL", 1e-4), 1e-12)
         # Aspect-ratio gate (2026-05-01): research switch, default off (1e30).
-        # Distribution analysis on representative validation meshes showed p90 aspect
+        # Distribution analysis on the GAME meshes showed HTP_launch p90 aspect
         # ratio 10.4 (max 24) vs VTP_launch p99 only 7.7, suggesting a possible
         # discriminator between HTP-breaking and VTP-improving curved elements
         # under MacNeal. Empirical sweep with `JFEM_Q4_MACNEAL_ASPECT_MAX=10`
@@ -3036,7 +3085,7 @@ function assemble_stiffness(model; bending_incomp::Bool=true, shear_center_only:
         # bending+shear block on the single-element probe ladder. Set this
         # env to bypass the PCOMP-only / MAT8-blank gate and apply
         # macneal_rigid_shear on every macneal-eligible Q4. Tested on
-        # left as an explicit experimental switch.
+        # GAME with TBD outcome.
         elem_macneal_rigid_shear =
             (mat8_blank_ts_rigid_limit &&
              elem_is_flat &&

@@ -113,6 +113,90 @@ function _von_mises_plane_stress(sigma)
 end
 
 """
+    _ks_aggregate(g::AbstractVector{<:Real}; rho::Real = 50.0) -> (ks_value, weights)
+
+Kreisselmeier–Steinhauser aggregation of a constraint vector. Returns the
+scalar smooth-max and the softmax weight vector w = exp(ρ(g - g_max)) / Σ.
+
+  KS(g) = g_max + (1/ρ) ln(Σ_i exp(ρ (g_i - g_max)))
+  dKS/dg_i = w_i
+
+This is the numerically stable form (subtracting g_max before exp) that
+TACS, OpenMDAO and ParOpt all use. As ρ → ∞, KS → max(g). For typical
+stress-constraint use ρ ∈ [25, 200]; the default 50 is a TACS-style
+sweet spot for ~1000-element shells.
+"""
+function _ks_aggregate(g::AbstractVector{<:Real}; rho::Real = 50.0)
+    isempty(g) && return 0.0, Float64[]
+    g_max = maximum(g)
+    e = [exp(rho * (gi - g_max)) for gi in g]
+    s = sum(e)
+    ks_value = g_max + log(s) / rho
+    w = e ./ s
+    return ks_value, w
+end
+
+"""
+    _ks_resolve_eids(resp, model) -> Vector{Int}
+
+Resolve the EID list from a `ks_von_mises` response definition. Accepts
+either an explicit `eids` array or the sentinel `"all"`, which expands to
+every shell EID in the model.
+"""
+function _ks_resolve_eids(resp, model)
+    raw = get(resp, "eids", nothing)
+    if raw === nothing
+        error("[ADJOINT] ks_von_mises response requires `eids` (array or \"all\")")
+    end
+    if raw isa AbstractString && lowercase(strip(raw)) == "all"
+        return sort!([parse(Int, k) for k in keys(model["CSHELLs"])])
+    end
+    # Accept both numeric and string EIDs in the input array. JSON-driven
+    # adjoint configs sometimes serialise integer EIDs as strings.
+    return Int[(x isa AbstractString ? parse(Int, x) : Int(x)) for x in raw]
+end
+
+"""
+    _ks_vm_per_element(eids, surface, u_global, model, id_map, node_coords, node_R)
+        -> (VM_vec, per_element_cache)
+
+Evaluate per-element von Mises stress at the requested surface for the
+given EID list. Returns the stress vector plus a cache of element data
+(ed, B-matrices, σ, dVM_dσ) so the adjoint pass can reuse them without
+re-fetching geometry/material.
+
+Elements that cannot be resolved (missing PID, etc.) get VM=0 and a
+nothing cache slot — the KS weight on those entries will be vanishingly
+small.
+"""
+function _ks_vm_per_element(eids::Vector{Int}, surface::AbstractString,
+                            u_global, model, id_map, node_coords, node_R)
+    n = length(eids)
+    VM_vec = Vector{Float64}(undef, n)
+    caches = Vector{Any}(undef, n)
+    for (i, eid) in enumerate(eids)
+        ed = _get_shell_element_data(eid, model, id_map, node_coords, node_R)
+        if isnothing(ed)
+            VM_vec[i] = 0.0
+            caches[i] = nothing
+            continue
+        end
+        Bm, Bb, D = _shell_centroid_B_matrices(ed.n_nodes, ed.lc, ed.E, ed.nu)
+        u_elem_global = [u_global[ed.dofs[k]] for k in 1:ed.ndof_elem]
+        u_local = ed.T_mat * u_elem_global
+        eps_mem = Bm * u_local
+        kappa = Bb * u_local
+        z = surface == "bottom" ? -ed.h/2 : ed.h/2
+        sigma = D * (eps_mem .+ z .* kappa)
+        VM, dVM_dsigma = _von_mises_plane_stress(sigma)
+        VM_vec[i] = VM
+        caches[i] = (ed=ed, Bm=Bm, Bb=Bb, D=D, sigma=sigma, dVM_dsigma=dVM_dsigma,
+                     eps_mem=eps_mem, kappa=kappa, z=z)
+    end
+    return VM_vec, caches
+end
+
+"""
 Look up the shell element data (coords, E, nu, h, T matrix, DOF indices)
 needed for stress response evaluation at element `eid`.
 Returns a NamedTuple or nothing if element not found.
@@ -233,6 +317,20 @@ function evaluate_response(resp, u_global, model, id_map, ndof, node_coords=noth
             comp = rtype == "shell_moment_mx" ? 1 : 2
             return M[comp]
         end
+
+    elseif rtype == "ks_von_mises"
+        # KS-aggregated von Mises stress over a list of shell EIDs.
+        # Inspired by TACS TACSKSFailure. Reduces a per-element stress
+        # constraint family to a single differentiable scalar, suitable
+        # for SOL 200-lite DCONSTR upper bounds.
+        eids = _ks_resolve_eids(resp, model)
+        surface = get(resp, "surface", "top")
+        rho = Float64(get(resp, "rho", 50.0))
+        sigma_ref = Float64(get(resp, "sigma_ref", 1.0))
+        VM_vec, _ = _ks_vm_per_element(eids, surface, u_global, model,
+                                       id_map, node_coords, node_R)
+        ks_value, _ = _ks_aggregate(VM_vec ./ sigma_ref; rho=rho)
+        return ks_value
     else
         error("[ADJOINT] Unsupported response type: $rtype")
     end
@@ -327,6 +425,32 @@ function compute_dr_du(resp, u_global, model, id_map, ndof, node_coords=nothing,
         end
         return dr_du
 
+    elseif rtype == "ks_von_mises"
+        # dKS/du = Σ_i w_i · dVM_i/du / σ_ref
+        # where w_i are the softmax weights from _ks_aggregate.
+        eids = _ks_resolve_eids(resp, model)
+        surface = get(resp, "surface", "top")
+        rho = Float64(get(resp, "rho", 50.0))
+        sigma_ref = Float64(get(resp, "sigma_ref", 1.0))
+        VM_vec, caches = _ks_vm_per_element(eids, surface, u_global, model,
+                                            id_map, node_coords, node_R)
+        _, w = _ks_aggregate(VM_vec ./ sigma_ref; rho=rho)
+
+        dr_du = zeros(ndof)
+        for (i, cache) in enumerate(caches)
+            isnothing(cache) && continue
+            w[i] == 0.0 && continue
+            ed = cache.ed
+            B_combined = cache.Bm .+ cache.z .* cache.Bb
+            dVM_du_local = (cache.dVM_dsigma' * cache.D * B_combined)'
+            dVM_du_elem = ed.T_mat' * dVM_du_local
+            scale = w[i] / sigma_ref
+            for k in 1:ed.ndof_elem
+                dr_du[ed.dofs[k]] += scale * dVM_du_elem[k]
+            end
+        end
+        return dr_du
+
     else
         error("[ADJOINT] Unsupported response type for dr/du: $rtype")
     end
@@ -350,6 +474,36 @@ function compute_dr_dx_explicit(resp, dv, model, id_map, node_coords, node_R, u_
     # Displacement responses have no explicit derivative
     if rtype == "displacement"
         return _zero_explicit_groups(dv)
+    end
+
+    # KS-aggregated stress: delegate per-EID to the single-element path and
+    # combine via softmax weights. Recursion is safe — each recursive call has
+    # type="von_mises" (a single-EID response).
+    if rtype == "ks_von_mises"
+        eids = _ks_resolve_eids(resp, model)
+        surface = get(resp, "surface", "top")
+        rho = Float64(get(resp, "rho", 50.0))
+        sigma_ref = Float64(get(resp, "sigma_ref", 1.0))
+        VM_vec, _ = _ks_vm_per_element(eids, surface, u_global, model,
+                                       id_map, node_coords, node_R)
+        _, w = _ks_aggregate(VM_vec ./ sigma_ref; rho=rho)
+
+        accumulated = _zero_explicit_groups(dv)
+        for (i, eid_i) in enumerate(eids)
+            w[i] == 0.0 && continue
+            sub_resp = Dict{String,Any}(
+                "type" => "von_mises",
+                "eid"  => eid_i,
+                "surface" => surface,
+            )
+            part = compute_dr_dx_explicit(sub_resp, dv, model, id_map,
+                                          node_coords, node_R, u_global, ndof)
+            scale = w[i] / sigma_ref
+            for (k, v) in part
+                accumulated[k] = get(accumulated, k, 0.0) + scale * v
+            end
+        end
+        return accumulated
     end
 
     # Only stress/force responses on shells have explicit thickness derivatives

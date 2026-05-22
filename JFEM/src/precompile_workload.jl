@@ -1,13 +1,11 @@
-# Optional representative precompile workload.
+# Optional SOL105 precompile workload.
 #
 # Enable before package precompilation with:
-#   JFEM_PRECOMPILE_WORKLOAD=true
+#   JFEM_SOL105_PRECOMPILE_WORKLOAD=true
 #
 # Optionally override the BDF list with semicolon-separated absolute/relative
-# paths in JFEM_PRECOMPILE_BDF and the flag set with
-# JFEM_PRECOMPILE_FLAGS="FLAG=val,FLAG2=val2".
-#
-# The older JFEM_SOL105_PRECOMPILE_* names are still accepted.
+# paths in JFEM_SOL105_PRECOMPILE_BDF and the flag set with
+# JFEM_SOL105_PRECOMPILE_FLAGS="FLAG=val,FLAG2=val2".
 
 const _JFEM_PRECOMPILE_TRUE = Set(("1", "true", "yes", "on"))
 
@@ -27,21 +25,16 @@ function _jfem_precompile_split_paths(raw::AbstractString)
 end
 
 function _jfem_default_precompile_bdfs()
-    examples_dir = normpath(joinpath(@__DIR__, "..", "examples", "precompile"))
-    isdir(examples_dir) || return String[]
-    paths = String[]
-    for name in sort(readdir(examples_dir))
-        ext = lowercase(splitext(name)[2])
-        ext in (".bdf", ".dat", ".nas") || continue
-        path = joinpath(examples_dir, name)
-        isfile(path) && push!(paths, path)
-    end
-    return paths
+    repo_root = normpath(joinpath(@__DIR__, "..", ".."))
+    candidates = String[
+        joinpath(repo_root, "NAST705", "probes", "kg_4x4_steplam2d.bdf"),
+        joinpath(repo_root, "NAST705", "small_stiffened_nobar.bdf"),
+    ]
+    return filter(isfile, candidates)
 end
 
 function _jfem_precompile_bdfs()
-    raw = strip(get(ENV, "JFEM_PRECOMPILE_BDF", ""))
-    isempty(raw) && (raw = strip(get(ENV, "JFEM_SOL105_PRECOMPILE_BDF", "")))
+    raw = strip(get(ENV, "JFEM_SOL105_PRECOMPILE_BDF", ""))
     if !isempty(raw)
         return filter(isfile, _jfem_precompile_split_paths(raw))
     end
@@ -49,8 +42,7 @@ function _jfem_precompile_bdfs()
 end
 
 function _jfem_precompile_flags()
-    raw = strip(get(ENV, "JFEM_PRECOMPILE_FLAGS", ""))
-    isempty(raw) && (raw = strip(get(ENV, "JFEM_SOL105_PRECOMPILE_FLAGS", "")))
+    raw = strip(get(ENV, "JFEM_SOL105_PRECOMPILE_FLAGS", ""))
     pairs = Pair{String,String}[]
     isempty(raw) && return pairs
     sep = occursin(";", raw) ? ";" : ","
@@ -95,9 +87,7 @@ function _jfem_precompile_solve_bdf(path::AbstractString)
     return get(results, "sol_type", nothing)
 end
 
-if _jfem_precompile_bool("JFEM_PRECOMPILE_WORKLOAD", false) ||
-   _jfem_precompile_bool("JFEM_SOL105_PRECOMPILE_WORKLOAD", false) ||
-   haskey(ENV, "JFEM_PRECOMPILE_BDF") ||
+if _jfem_precompile_bool("JFEM_SOL105_PRECOMPILE_WORKLOAD", false) ||
    haskey(ENV, "JFEM_SOL105_PRECOMPILE_BDF")
     @setup_workload begin
         bdfs = _jfem_precompile_bdfs()

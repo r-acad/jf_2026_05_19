@@ -583,23 +583,23 @@ function build_model(cards, cc)
             # Two-part fix is decomposable: the rigid-TS piece can be activated
             # via JFEM_PCOMP_RIGID_TS_LITERAL alone, independent of the zb_scale
             # calibration. This allows users (and us, for diagnostic) to test
-            # which piece drives representative shell trade-offs.
+            # which piece drives the HTP-vs-VTP trade-off on GAME.
             # Default ON (2026-05-14 very late evening): when a PCOMP qualifies
             # for the MAT8-blank-G1Z convention (Nastran treats as MID3=0 → no
             # transverse-shear material), apply a Cs override that supplants
             # the Whitney-Pagano correction. The default Cs scale is 2.5
-            # (calibrated on representative curved-shell mode matching:
-            # mean MAC 0.963,
+            # (GAME-tuned: maximizes mean MAC between JFEM and Nastran mode 1
+            # across HTP_launch_16modes + VTP_launch_16modes — mean MAC 0.963,
             # min MAC 0.92). This replaces the previous CS_SCALE=100
             # (well-conditioned-Kirchhoff) which produced large eigenvalue
-            # over-prediction on the calibration set because the
+            # over-prediction (HTP_launch +15%) because the
             # per-element-K-optimal Cs is much stiffer than the
             # global-eigenvalue-optimal Cs on curved aerospace shells.
             #
             # The previous defaults (Whitney κ < 1) produced phantom soft
             # modes that displaced the physical mode 1 in JFEM's spectrum,
             # giving up to 17.81% eigenvalue under-prediction AND mode 1
-            # MAC = 0.005 on a calibration case (essentially orthogonal to
+            # MAC = 0.005 on VTP_launch 511002 (essentially orthogonal to
             # Nastran's mode 1). The CS_SCALE=2.5 default eliminates both
             # the eigenvalue and the mode-selection error simultaneously.
             #
@@ -608,22 +608,26 @@ function build_model(cards, cc)
             #     (the pre-2026-05-14 default; useful for back-compat tests)
             #   JFEM_PCOMP_RIGID_TS_CS_SCALE=<value>  — set Cs multiplier
             #     directly (overrides default 2.5).
-            # Legacy `JFEM_PCOMP_RIGID_TS_LITERAL` and
-            # `JFEM_Q4_NASTRAN_K_PARITY_FIXES` are still honored — they
-            # force-enable the path (now no-op since it's default ON) but
-            # retain bit-compatibility with prior scripts.
+            # =================================================================
+            # BACK-COMPAT SHIMS (NO-OP): JFEM_PCOMP_RIGID_TS_LITERAL and
+            # JFEM_Q4_NASTRAN_K_PARITY_FIXES. Both used to force-enable this
+            # path; now no-op because the path is default-ON. Retained ONLY
+            # for bit-compatibility with prior research scripts that may
+            # still set them. Safe to delete in a future cleanup when no
+            # outstanding scripts reference them. Do not introduce new usage.
+            # =================================================================
             rigid_ts_disable = lowercase(strip(get(ENV, "JFEM_PCOMP_RIGID_TS_DISABLE", ""))) in ("1","true","yes","on")
             if !rigid_ts_disable && saw_mat8_ply && all_mat8_plies_blank_transverse_shear
                 # Uniform Cs=2.5*Ash default (2026-05-15):
-                # Calibrated across a curved-shell Cs sweep (max mean MAC
+                # GAME-tuned across Cs sweep on launch_16modes (max mean MAC
                 # 0.963 at Cs=2.5). Replaces Whitney's κ < 1 softening which
-                # produced phantom soft modes (MAC 0.005 on a calibration case).
+                # produced phantom soft modes (MAC 0.005 on VTP_launch 511002).
                 #
                 # Side effect: flat PCOMP cantilever probes over-predict +8-9%
                 # because Cs=2.5 is past the Whitney κ regime for those.
                 # Tried `JFEM_PCOMP_RIGID_TS_CS_FACTOR=<x>` layup-aware
                 # variant (Cs = factor·κ·Ash); on flat probes the effect is
-                # negligible due to Cs-saturation; on large validation cases slightly worse on
+                # negligible due to Cs-saturation; on GAME slightly worse on
                 # mean (3.38% vs 3.27% on 6 subcases measured). Kept the
                 # uniform path as default for simplicity.
                 #

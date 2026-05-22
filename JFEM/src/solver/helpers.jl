@@ -223,7 +223,7 @@ end
     # Default OFF (2026-04-29). Wilson-Taylor incompatible membrane modes were
     # turned on in the static K to reduce shear-locking on bending-dominant
     # cases. Empirically they soften the static stiffness too much for the
-    # bending-prestress validation cases and hurt the eigenvalue magnitudes
+    # bending-prestress class of GAME cases and hurt the eigenvalue magnitudes
     # against Nastran (HTP_launch first-eigenvalue rel err: 13.3% with bubbles
     # vs 2.9% without; 3wp magnitudes also improve). Nastran's CQUAD4 (MacNeal
     # lineage) does not include Wilson-Taylor membrane bubbles, so removing
@@ -265,15 +265,15 @@ end
 @inline function kg_match_static_membrane_operator_enabled()
     # Default OFF (2026-04-29). Previously this cascaded from USE_STATIC_K=true,
     # which silently switched Kg σ-recovery to the bubble-augmented (Wilson-
-    # Taylor) kinematic field. For bending-dominant prestress cases, the WT
-    # bubble correction has comparable magnitude and opposite
+    # Taylor) kinematic field. For bending-dominant prestress (e.g. the GAME
+    # 3wp cases) the WT bubble correction has comparable magnitude and opposite
     # sign to the compatible σ, so it flipped the σ sign and hence the buckling
     # eigenvalue sign — Nastran returned λ ≈ +1.14, JFEM returned λ ≈ -0.20.
     # The bubble σ matches K_static in JFEM's own internal element but Nastran's
     # CQUAD4 (MacNeal lineage) does not use the same internal modes, so the
     # "matching" was consistent only with JFEM's element, not Nastran's.
     # Reverting to compatible-only σ restores positive eigenvalue signs across
-    # all tested multi-point bending subcases.
+    # all GAME 3wp subcases.
     # Re-enable explicitly with JFEM_KG_MATCH_STATIC_MEMBRANE_OPERATOR=true.
     return solver_env_bool("JFEM_KG_MATCH_STATIC_MEMBRANE_OPERATOR", false)
 end
@@ -288,15 +288,15 @@ end
 
 @inline function sol105_eig_bending_incomp_enabled()
     # Use the enriched bending branch by default for SOL105 K_eig. This is now
-    # the safest common baseline across the broad buckling validation set,
-    # while still allowing an explicit opt-out through the env override.
+    # the safest common baseline across the broad buckling gate and the GAME
+    # pack, while still allowing an explicit opt-out through the env override.
     return solver_env_bool("JFEM_SOL105_EIG_BENDING_INCOMP", true)
 end
 
 @inline function q4_curvature_membrane_scale(primary_key::String)
     # Default 0.0 (2026-04-21 cleanup): the curvature_membrane B[:, idx+3] term
     # (Koiter-Donnell style -N_k*kappa coupling on w-DOF) was gated off by the
-    # resolution threshold on every large-deck validation element anyway; removing it at the
+    # resolution threshold on every real GAME element anyway; removing it at the
     # default keeps behavior consistent with pure_v1 baseline. A proper
     # Marguerre-style coupling on the rotation DOFs (idx+4/5) is the intended
     # replacement per Ibrahimbegović 1994 Eq. 6.14.
@@ -384,7 +384,7 @@ end
 
 @inline function q4_pcomp_kg_auto_g12_enabled()
     # Default off (2026-04-21 cleanup): heuristic auto-G12 axis selector was
-    # case-tuned and net-negative on the broad validation set. Env override retained.
+    # case-tuned and net-negative on GAME. Env override retained for probes.
     return solver_env_bool("JFEM_Q4_PCOMP_KG_AUTO_G12", false)
 end
 
@@ -456,7 +456,7 @@ end
 
 @inline function q4_pcomp_kg_auto_curvature_scale()
     # Default 1.0 neutral (2026-04-21 cleanup): the 7.0 multiplier was a fudge
-    # factor tuned to a synthetic laminate family; net-negative on the broad validation set.
+    # factor tuned to a synthetic laminate family; net-negative on GAME.
     return max(solver_env_float("JFEM_Q4_PCOMP_KG_AUTO_CURVATURE_SCALE", 1.0), 0.0)
 end
 

@@ -30,11 +30,3 @@ end
 if !isdefined(@__MODULE__, :solve_model)
     include("JFEMSolver.jl")
 end
-
-if !isdefined(@__MODULE__, :build_jfem_element_tables)
-    include("Export.jl")
-end
-
-if !isdefined(@__MODULE__, :export_markdown_report)
-    include("MarkdownReport.jl")
-end

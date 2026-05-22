@@ -1335,8 +1335,6 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     sol105_static_cache_hits = 0
     sol105_static_cache_misses = 0
     sol105_eigen_seeded_from_static = 0
-    sol105_static_full_recovery = Solver.solver_env_bool("JFEM_SOL105_STATIC_FULL_RECOVERY", false)
-    sol105_eigenvalues_only = Solver.solver_env_bool("JFEM_SOL105_EIGENVALUES_ONLY", false)
     all_eigenvalues = Float64[]
     all_mode_shapes = Vector{Vector{Float64}}()
     buckling_case_diagnostics = Any[]
@@ -1405,18 +1403,10 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
                         )
                     end
                 end
-                if sol105_static_full_recovery
-                    _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
-                        K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
-                        max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static,
-                        snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
-                        temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
-                else
-                    u_static_analysis, fixed_dofs_static, _, _ = Solver.solve_case_state(
-                        K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
-                        max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, orig_diag=orig_diag_static,
-                        temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
-                end
+                _, _, _, u_static_analysis, fixed_dofs_static = Solver.solve_case(
+                    K_static, ndof_static, model, id_map_static, X_static, load_id, spc_id_static, node_R_static;
+                    max_elem_stiff=max_elem_stiff_static, rbe3_map=rbe3_map_static, snorm_normals=snorm_normals_static, orig_diag=orig_diag_static,
+                    temp_load_id=temp_load_id_static, linear_cache=static_linear_solve_cache)
                 return u_static_analysis, fixed_dofs_static
             end
 
@@ -1542,8 +1532,7 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
     end
     println(">>> ============================================")
 
-    store_public_mode_shapes = Solver.solver_env_bool("JFEM_SOL105_STORE_PUBLIC_MODE_SHAPES", true)
-    mode_shapes_out = store_public_mode_shapes ? _mode_shapes_to_list(mode_shapes, id_map) : []
+    mode_shapes_out = _mode_shapes_to_list(mode_shapes, id_map)
 
     return Dict(
         "sol_type" => 105,
@@ -1569,9 +1558,6 @@ function _solve_sol105(model, cc, K, K_eig, id_map, X, ndof, node_R,
             "linear_solve_cache_enabled" => static_linear_solve_cache !== nothing,
             "eigen_solve_cache_enabled" => eigen_solve_cache !== nothing,
             "eigen_seeded_from_static_linear_cache" => sol105_eigen_seeded_from_static,
-            "static_full_recovery" => sol105_static_full_recovery,
-            "eigenvalues_only" => sol105_eigenvalues_only,
-            "public_mode_shapes_stored" => store_public_mode_shapes,
         ),
         "timings" => Dict{String,Any}(
             "sol105_static_reference_solve" => sol105_static_wall_seconds,
@@ -1638,20 +1624,18 @@ end
 function _mode_shapes_to_list(mode_shapes, id_map)
     if size(mode_shapes, 2) == 0; return []; end
     sorted_nodes = sort(collect(keys(id_map)))
-    n_nodes = length(sorted_nodes)
-    n_modes = size(mode_shapes, 2)
-    modes = Vector{Any}(undef, n_modes)
-    for m in 1:n_modes
-        mode_data = Vector{Any}(undef, n_nodes)
-        for (node_pos, nid) in enumerate(sorted_nodes)
+    modes = []
+    for m in 1:size(mode_shapes, 2)
+        mode_data = []
+        for nid in sorted_nodes
             idx = id_map[nid]; base = (idx-1)*6
-            mode_data[node_pos] = Dict(
+            push!(mode_data, Dict(
                 "grid_id" => nid,
                 "t1" => mode_shapes[base+1, m], "t2" => mode_shapes[base+2, m], "t3" => mode_shapes[base+3, m],
                 "r1" => mode_shapes[base+4, m], "r2" => mode_shapes[base+5, m], "r3" => mode_shapes[base+6, m],
-            )
+            ))
         end
-        modes[m] = mode_data
+        push!(modes, mode_data)
     end
     return modes
 end
@@ -1711,10 +1695,6 @@ function _ensure_export_extensions!()
         isdefined(@__MODULE__, :WriteVTK) || (@eval using WriteVTK)
         isdefined(@__MODULE__, :HDF5) || (@eval using HDF5)
         Base.include(@__MODULE__, joinpath(@__DIR__, "Export.jl"))
-    end
-    if !isdefined(@__MODULE__, :export_markdown_report)
-        isdefined(@__MODULE__, :Printf) || (@eval using Printf)
-        Base.include(@__MODULE__, joinpath(@__DIR__, "MarkdownReport.jl"))
     end
     return nothing
 end
@@ -1898,22 +1878,18 @@ function _export_results_impl(results::Dict, filename::String, output_dir::Strin
     elseif sol_type == 105
         mode_shapes = results["_raw_mode_shapes"]
         eigenvalues = results["eigenvalues"]
-        mode_shapes_available = size(mode_shapes, 2) >= length(eigenvalues)
-        if !mode_shapes_available && (export_vtk || export_hdf5 || export_jfem_binary)
-            println(">>> Mode shapes are omitted for this SOL 105 run; skipping VTK/HDF5/.jfem mode-shape exports.")
-        end
-        if export_vtk && mode_shapes_available
+        if export_vtk
             export_buckling_vtk(filename, output_dir, model, id_map, X, eigenvalues, mode_shapes)
         end
         if export_json
             export_buckling_json(filename, output_dir, eigenvalues, mode_shapes, id_map;
                 analysis_type="SOL105_BUCKLING", diagnostics=get(results, "solver_diagnostics", nothing))
         end
-        if export_hdf5 && mode_shapes_available
+        if export_hdf5
             getfield(@__MODULE__, :export_hdf5)(filename, output_dir, build_buckling_hdf5_payload(results, filename);
                 suffix=".BUCKLING.H5", label="BUCKLING HDF5")
         end
-        if export_jfem_binary && mode_shapes_available
+        if export_jfem_binary
             export_jfem_buckling(filename, output_dir, id_map, X,
                 jfem_node_ids, jfem_quads, jfem_trias, jfem_bars, jfem_rods,
                 jfem_tetras, jfem_hexas, jfem_pentas,

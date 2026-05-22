@@ -405,11 +405,9 @@ function build_buckling_export_payload(eigenvalues, mode_shapes, id_map;
         "analysis_type" => analysis_type,
         "grid_id_order" => sorted_nodes,
         "modes" => modes,
-        "mode_shape_count" => mode_count,
     )
     if eigenvalues !== nothing
         payload["eigenvalues"] = collect(eigenvalues)
-        payload["mode_shapes_omitted"] = mode_count < length(eigenvalues)
     end
     if frequencies !== nothing
         payload["frequencies"] = collect(frequencies)
